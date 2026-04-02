@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>新闻素养学习中枢</title>
+  <link rel="stylesheet" href="../shared/design-tokens.css" />
+  <link rel="stylesheet" href="./styles.css" />
+  <meta name="description" content="新闻素养学习中枢 — 5 大模块 · 50+ 工具 · 案例任务链驱动的实战训练" />
+</head>
+<body>
+  <main class="app" id="app">
+    <!-- Hero -->
+    <header class="hero">
+      <h1>🎓 新闻素养学习中枢</h1>
+      <p class="subtitle">5 大模块 · 50 个工具 · 案例驱动的实战训练</p>
+      <div class="hero-stats" id="heroStats">
+        <span class="hero-stat"><strong id="statModules">0</strong>/5 模块</span>
+        <span class="hero-stat"><strong id="statTasks">0</strong>/5 任务</span>
+        <span class="hero-stat"><strong id="statTools">0</strong>/50 工具</span>
+        <span class="hero-stat"><strong id="statDwell">0m</strong>学习时长</span>
+      </div>
+    </header>
+
+    <!-- Tab Nav -->
+    <nav class="tab-nav" id="tabNav">
+      <button class="tab active" data-tab="missions">🎯 实战任务</button>
+      <button class="tab" data-tab="modules">📚 学习模块</button>
+      <button class="tab" data-tab="stats">📊 学习画像</button>
+    </nav>
+
+    <!-- Tab: Missions -->
+    <section class="tab-panel active" id="panelMissions">
+      <h2>🎯 案例驱动任务链</h2>
+      <p class="section-desc">每个任务串联 4-5 个工具，完成一次真实的新闻核查实战。按难度由低到高排列。</p>
+      <div class="mission-grid" id="missionGrid"></div>
+    </section>
+
+    <!-- Tab: Modules -->
+    <section class="tab-panel" id="panelModules">
+      <h2>📚 学习模块</h2>
+      <p class="section-desc">50 个工具按新闻素养核心能力分为 5 大模块。点击工具名直接打开。</p>
+      <div class="module-grid" id="moduleGrid"></div>
+    </section>
+
+    <!-- Tab: Stats -->
+    <section class="tab-panel" id="panelStats">
+      <h2>📊 学习画像</h2>
+      <p class="section-desc">基于 localStorage 的本地数据统计，数据仅存在于你的浏览器中。</p>
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card"><span class="stat-num" id="sTotalEvents">-</span><span class="stat-label">总事件数</span></div>
+        <div class="stat-card"><span class="stat-num" id="sToolsUsed">-</span><span class="stat-label">已用工具</span></div>
+        <div class="stat-card"><span class="stat-num" id="sTasksDone">-</span><span class="stat-label">完成任务</span></div>
+        <div class="stat-card"><span class="stat-num" id="sDwell">-</span><span class="stat-label">总停留</span></div>
+      </div>
+      <div class="card" id="usageChart"><h3>🏆 工具使用排行</h3><div id="barChart"></div></div>
+      <div class="card" id="calCard"><h3>📅 活跃日历 (90天)</h3><div class="calendar-area" id="calChart"></div></div>
+      <div class="card actions-card">
+        <button id="exportBtn">📥 导出数据 (JSON)</button>
+        <button id="clearBtn" class="btn-secondary">🗑️ 清除全部数据</button>
+      </div>
+    </section>
+
+    <!-- Mission Detail Modal -->
+    <div class="modal-overlay" id="missionModal">
+      <div class="modal card">
+        <button class="modal-close" id="modalClose" aria-label="关闭">✕</button>
+        <div class="modal-header">
+          <h2 id="modalTitle"></h2>
+          <span class="modal-badge" id="modalBadge"></span>
+        </div>
+        <p id="modalDesc"></p>
+        <div class="mission-steps" id="modalSteps"></div>
+        <div class="modal-actions">
+          <button id="modalStartBtn">🚀 开始任务</button>
+          <button class="btn-secondary" id="modalResetBtn">🔄 重置进度</button>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <p>新闻素养工具集 · 51 个项目 · <a href="https://github.com/Yuuqq" target="_blank">GitHub @Yuuqq</a></p>
+    </footer>
+  </main>
+
+  <script src="./app.js" defer></script>
+  <script src="../shared/dark-toggle.js" defer></script>
+</body>
+</html>
+
