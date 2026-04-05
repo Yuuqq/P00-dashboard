@@ -5,16 +5,17 @@
 .hero h1 { font-size: 2.2rem; margin: 0 0 8px; }
 .subtitle { color: var(--ink-secondary); font-size: 1.05rem; margin: 0 0 24px; letter-spacing: 0.02em; }
 .hero-stats { display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; }
-.hero-stat { font-size: 0.85rem; color: var(--ink-secondary); text-align: center; }
-.hero-stat strong { font-size: 1.4rem; color: var(--accent); display: block; font-weight: 800; }
+.hero-stat { font-size: 0.85rem; color: var(--ink-secondary); text-align: center; font-weight: 500; }
+.hero-stat strong { font-size: 1.4rem; color: var(--accent); display: block; font-weight: 800; margin-bottom: 2px;
+  font-variant-numeric: tabular-nums; }
 
 /* Tabs */
 .tab-nav { display: flex; gap: 4px; margin: 28px 0 20px; border-bottom: 2px solid var(--line); overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .tab { background: none; border: none; padding: 12px 20px; font-size: 0.9rem; font-weight: 600;
   color: var(--ink-secondary); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
-  transition: color 0.2s, border-color 0.2s; white-space: nowrap; }
-.tab:hover { color: var(--ink); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  transition: color 0.2s, border-color 0.2s, background 0.2s; white-space: nowrap; border-radius: 8px 8px 0 0; }
+.tab:hover { color: var(--ink); background: var(--accent-light); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); background: none; }
 .tab-panel { display: none; animation: fadeInUp 0.3s ease; }
 .tab-panel.active { display: block; }
 .section-desc { color: var(--ink-secondary); font-size: 0.88rem; margin: 0 0 20px; line-height: 1.6; }
@@ -35,8 +36,8 @@
 .mission-card .mc-meta { display: flex; gap: 12px; font-size: 0.75rem; color: var(--ink-secondary); flex-wrap: wrap; }
 .mission-card .mc-meta span { display: flex; align-items: center; gap: 4px; }
 .mission-card .mc-progress { margin-top: 12px; }
-.mc-bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
-.mc-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--warn)); border-radius: 3px; transition: width 0.4s ease; }
+.mc-bar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
+.mc-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--warn)); border-radius: 5px; transition: width 0.4s ease; }
 .mc-complete { border-left-color: var(--ok); }
 .mc-complete h3::after { content: " ✅"; }
 
@@ -49,8 +50,8 @@
 .module-card:hover { transform: translateY(-2px); }
 .module-card h3 { margin: 0 0 8px; font-size: 1.05rem; }
 .module-card .mod-desc { font-size: 0.82rem; color: var(--ink-secondary); margin: 0 0 12px; line-height: 1.5; }
-.module-card .mod-progress { height: 4px; background: var(--line); border-radius: 2px; margin-bottom: 12px; overflow: hidden; }
-.module-card .mod-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s; }
+.module-card .mod-progress { height: 8px; background: var(--line); border-radius: 4px; margin-bottom: 12px; overflow: hidden; }
+.module-card .mod-progress-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
 .module-card .tool-list { list-style: none; padding: 0; margin: 0; }
 .module-card .tool-list li {
   padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.82rem;
@@ -65,15 +66,16 @@
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .stat-card { background: var(--card); border-radius: var(--radius-md); padding: 20px 16px; text-align: center; box-shadow: var(--shadow-card); transition: transform 0.2s; }
 .stat-card:hover { transform: translateY(-2px); }
-.stat-num { display: block; font-size: 1.8rem; font-weight: 800; color: var(--accent); }
-.stat-label { display: block; font-size: 0.72rem; color: var(--ink-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+.stat-num { display: block; font-size: 1.8rem; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.stat-label { display: block; font-size: 0.75rem; color: var(--ink-secondary); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
 
 /* Bar chart */
 .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
 .bar-label { min-width: 120px; text-align: right; color: var(--ink-secondary); font-weight: 500; }
 .bar-track { flex: 1; background: var(--line); border-radius: 4px; height: 22px; overflow: hidden; }
 .bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--warn)); border-radius: 4px;
-  display: flex; align-items: center; padding-left: 8px; color: #fff; font-size: 11px; font-weight: 700; transition: width 0.5s ease; }
+  display: flex; align-items: center; padding-left: 8px; color: #fff; font-size: 11px; font-weight: 700; transition: width 0.5s ease;
+  font-variant-numeric: tabular-nums; }
 
 /* Calendar */
 .calendar-area { display: flex; flex-wrap: wrap; gap: 3px; }
@@ -94,10 +96,11 @@
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 .modal-overlay.open { display: flex; animation: fadeInUp 0.25s ease; }
 .modal { max-width: 620px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 32px; position: relative; }
-.modal-close { position: absolute; top: 12px; right: 12px; background: none; border: none; font-size: 1.3rem;
-  cursor: pointer; color: var(--ink-secondary); transition: color 0.15s; width: 32px; height: 32px;
-  display: flex; align-items: center; justify-content: center; border-radius: 50%; }
-.modal-close:hover { background: var(--line); color: var(--ink); }
+.modal-close { position: absolute; top: 12px; right: 12px; background: var(--line); border: none; font-size: 1.2rem;
+  cursor: pointer; color: var(--ink); transition: all 0.2s ease; width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.modal-close:hover { background: var(--bad); color: #fff; transform: scale(1.1); }
 .modal-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .modal h2 { margin: 0 0 4px; flex: 1; }
 .modal-badge { font-size: 0.7rem; padding: 3px 10px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 600; white-space: nowrap; }

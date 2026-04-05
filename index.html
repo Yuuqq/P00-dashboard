@@ -24,28 +24,28 @@
     </header>
 
     <!-- Tab Nav -->
-    <nav class="tab-nav" id="tabNav">
-      <button class="tab active" data-tab="missions">🎯 实战任务</button>
-      <button class="tab" data-tab="modules">📚 学习模块</button>
-      <button class="tab" data-tab="stats">📊 学习画像</button>
+    <nav class="tab-nav" id="tabNav" role="tablist" aria-label="学习中枢主导航">
+      <button class="tab active" id="tabMissions" type="button" data-tab="missions" role="tab" aria-selected="true" aria-controls="panelMissions" tabindex="0">🎯 实战任务</button>
+      <button class="tab" id="tabModules" type="button" data-tab="modules" role="tab" aria-selected="false" aria-controls="panelModules" tabindex="-1">📚 学习模块</button>
+      <button class="tab" id="tabStats" type="button" data-tab="stats" role="tab" aria-selected="false" aria-controls="panelStats" tabindex="-1">📊 学习画像</button>
     </nav>
 
     <!-- Tab: Missions -->
-    <section class="tab-panel active" id="panelMissions">
+    <section class="tab-panel active" id="panelMissions" role="tabpanel" aria-labelledby="tabMissions">
       <h2>🎯 案例驱动任务链</h2>
       <p class="section-desc">每个任务串联 4-5 个工具，完成一次真实的新闻核查实战。按难度由低到高排列。</p>
       <div class="mission-grid" id="missionGrid"></div>
     </section>
 
     <!-- Tab: Modules -->
-    <section class="tab-panel" id="panelModules">
+    <section class="tab-panel" id="panelModules" role="tabpanel" aria-labelledby="tabModules" hidden>
       <h2>📚 学习模块</h2>
       <p class="section-desc">50 个工具按新闻素养核心能力分为 5 大模块。点击工具名直接打开。</p>
       <div class="module-grid" id="moduleGrid"></div>
     </section>
 
     <!-- Tab: Stats -->
-    <section class="tab-panel" id="panelStats">
+    <section class="tab-panel" id="panelStats" role="tabpanel" aria-labelledby="tabStats" hidden>
       <h2>📊 学习画像</h2>
       <p class="section-desc">基于 localStorage 的本地数据统计，数据仅存在于你的浏览器中。</p>
       <div class="stats-grid" id="statsGrid">
@@ -57,15 +57,15 @@
       <div class="card" id="usageChart"><h3>🏆 工具使用排行</h3><div id="barChart"></div></div>
       <div class="card" id="calCard"><h3>📅 活跃日历 (90天)</h3><div class="calendar-area" id="calChart"></div></div>
       <div class="card actions-card">
-        <button id="exportBtn">📥 导出数据 (JSON)</button>
-        <button id="clearBtn" class="btn-secondary">🗑️ 清除全部数据</button>
+        <button id="exportBtn" type="button">📥 导出数据 (JSON)</button>
+        <button id="clearBtn" type="button" class="btn-secondary">🗑️ 清除全部数据</button>
       </div>
     </section>
 
     <!-- Mission Detail Modal -->
-    <div class="modal-overlay" id="missionModal">
-      <div class="modal card">
-        <button class="modal-close" id="modalClose" aria-label="关闭">✕</button>
+    <div class="modal-overlay" id="missionModal" aria-hidden="true">
+      <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDesc" tabindex="-1">
+        <button class="modal-close" id="modalClose" type="button" aria-label="关闭">✕</button>
         <div class="modal-header">
           <h2 id="modalTitle"></h2>
           <span class="modal-badge" id="modalBadge"></span>
@@ -73,17 +73,18 @@
         <p id="modalDesc"></p>
         <div class="mission-steps" id="modalSteps"></div>
         <div class="modal-actions">
-          <button id="modalStartBtn">🚀 开始任务</button>
-          <button class="btn-secondary" id="modalResetBtn">🔄 重置进度</button>
+          <button id="modalStartBtn" type="button">🚀 开始任务</button>
+          <button class="btn-secondary" id="modalResetBtn" type="button">🔄 重置进度</button>
         </div>
       </div>
     </div>
 
     <footer class="footer">
-      <p>新闻素养工具集 · 51 个项目 · <a href="https://github.com/Yuuqq" target="_blank">GitHub @Yuuqq</a></p>
+      <p>新闻素养工具集 · 50 个项目 · <a href="https://github.com/Yuuqq" target="_blank">GitHub @Yuuqq</a></p>
     </footer>
   </main>
 
+  <script src="../shared/toast.js" defer></script>
   <script src="./app.js" defer></script>
   <script src="../shared/dark-toggle.js" defer></script>
 </body>
