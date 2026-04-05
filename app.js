@@ -143,8 +143,55 @@ const MISSIONS = [
 ];
 
 // ===== 进度持久化 =====
+const DASHBOARD_PROJECT_ID = "P00";
 const PROGRESS_KEY = "p00_mission_progress";
 const TOOLS_KEY_PREFIX = "pm_metrics_events_";
+const TASK_START_KEY_PREFIX = "pm_metrics_task_start_";
+const TOOLBOX_THEME_KEY = "journalism_toolbox_theme";
+
+function extractTrackedProjectId(storageKey) {
+  if (!storageKey || !storageKey.startsWith(TOOLS_KEY_PREFIX)) return null;
+  const pid = storageKey.replace(TOOLS_KEY_PREFIX, "").match(/^P\d+/)?.[0];
+  return pid && pid !== DASHBOARD_PROJECT_ID ? pid : null;
+}
+
+function getTrackedMetricsEntries() {
+  const entries = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    const pid = extractTrackedProjectId(key);
+    if (!pid || !key) continue;
+    try {
+      const events = JSON.parse(localStorage.getItem(key) || "[]");
+      if (!Array.isArray(events)) continue;
+      entries.push({ key, pid, events });
+    } catch {}
+  }
+  return entries;
+}
+
+function isManagedStorageKey(key) {
+  return key === PROGRESS_KEY
+    || key === TOOLBOX_THEME_KEY
+    || !!extractTrackedProjectId(key)
+    || key?.startsWith(TASK_START_KEY_PREFIX);
+}
+
+function getManagedStorageSnapshot() {
+  const snapshot = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !isManagedStorageKey(key)) continue;
+    snapshot[key] = localStorage.getItem(key);
+  }
+  return snapshot;
+}
+
+function clearManagedStorage() {
+  const keys = Object.keys(getManagedStorageSnapshot());
+  keys.forEach(key => localStorage.removeItem(key));
+  return keys.length;
+}
 
 function loadProgress() {
   try { return JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}"); } catch { return {}; }
@@ -153,27 +200,53 @@ function saveProgress(p) { localStorage.setItem(PROGRESS_KEY, JSON.stringify(p))
 
 function getToolsUsed() {
   const used = new Set();
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k && k.startsWith(TOOLS_KEY_PREFIX)) {
-      const pid = k.replace(TOOLS_KEY_PREFIX, "").match(/^P\d+/)?.[0];
-      if (pid) used.add(pid);
-    }
-  }
+  getTrackedMetricsEntries().forEach(({ pid }) => used.add(pid));
   return used;
 }
 
 // ===== Tab 切换 =====
 const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll(".tab-panel");
+const modal = document.getElementById("missionModal");
+const modalDialog = modal.querySelector(".modal");
+const modalCloseBtn = document.getElementById("modalClose");
+const tabOrder = Array.from(tabs);
+let currentMission = null;
+let lastFocusedElement = null;
+
+function activateTab(tab, { focus = false } = {}) {
+  tabs.forEach(t => {
+    const isActive = t === tab;
+    const panel = document.getElementById("panel" + capitalize(t.dataset.tab));
+    t.classList.toggle("active", isActive);
+    t.setAttribute("aria-selected", isActive ? "true" : "false");
+    t.tabIndex = isActive ? 0 : -1;
+    if (panel) {
+      panel.classList.toggle("active", isActive);
+      panel.hidden = !isActive;
+    }
+  });
+  if (focus) tab.focus();
+}
+
 tabs.forEach(tab => {
   tab.addEventListener("click", () => {
-    tabs.forEach(t => t.classList.remove("active"));
-    panels.forEach(p => p.classList.remove("active"));
-    tab.classList.add("active");
-    document.getElementById("panel" + capitalize(tab.dataset.tab)).classList.add("active");
+    activateTab(tab);
+  });
+  tab.addEventListener("keydown", e => {
+    const idx = tabOrder.indexOf(tab);
+    let nextIdx = null;
+    if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabOrder.length;
+    if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabOrder.length) % tabOrder.length;
+    if (e.key === "Home") nextIdx = 0;
+    if (e.key === "End") nextIdx = tabOrder.length - 1;
+    if (nextIdx === null) return;
+    e.preventDefault();
+    activateTab(tabOrder[nextIdx], { focus: true });
   });
 });
+panels.forEach(panel => { panel.hidden = !panel.classList.contains("active"); });
+tabs.forEach(t => t.tabIndex = t.classList.contains("active") ? 0 : -1);
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 // ===== 渲染任务卡片 =====
@@ -206,12 +279,18 @@ function renderMissions() {
 }
 
 // ===== 任务详情弹窗 =====
-const modal = document.getElementById("missionModal");
-let currentMission = null;
+function closeMissionModal({ restoreFocus = true } = {}) {
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden", "true");
+  if (restoreFocus && lastFocusedElement instanceof HTMLElement) {
+    lastFocusedElement.focus();
+  }
+}
 
 function openMissionModal(missionId) {
   currentMission = MISSIONS.find(m => m.id === missionId);
   if (!currentMission) return;
+  lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const progress = loadProgress();
   const p = progress[missionId] || {};
 
@@ -227,7 +306,7 @@ function openMissionModal(missionId) {
       <div class="step-info">
         <span class="step-tool">${step.tool} ${step.name}</span>
         <span class="step-action">${step.action}</span>
-        <small style="color:var(--warn);display:block;margin-top:4px">💡 ${step.hint}</small>
+        <small style="color:var(--ink-secondary);display:block;margin-top:6px;padding:6px 10px;background:var(--accent-light);border-radius:6px;line-height:1.5;font-size:0.78rem">💡 ${step.hint}</small>
         ${done ? '<span style="color:var(--ok);font-size:0.75rem">✅ 已完成</span>' : `<a href="${SITE_BASE}/${step.tool}-${getToolSlug(step.tool)}/" target="_blank" 
           class="tool-link" data-step="${i}" style="display:inline-block;margin-top:8px">
           ▶ 打开工具</a>`}
@@ -245,6 +324,8 @@ function openMissionModal(missionId) {
   });
 
   modal.classList.add("open");
+  modal.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => modalCloseBtn.focus());
 }
 
 function markStepDone(missionId, stepIdx) {
@@ -254,12 +335,34 @@ function markStepDone(missionId, stepIdx) {
   saveProgress(prog);
   renderMissions();
   refreshHeroStats();
-  if (window.showToast) window.showToast(`步骤 ${Number(stepIdx) + 1} 已标记完成`, "success");
+  if (window.showToast) {
+    const allDone = currentMission?.id === missionId && currentMission.steps.every((_, i) => prog[missionId]["step" + i]);
+    const message = allDone ? `任务完成：${currentMission.title}` : `步骤 ${Number(stepIdx) + 1} 已标记完成`;
+    window.showToast(message, "success");
+  }
 }
 
-document.getElementById("modalClose").addEventListener("click", () => modal.classList.remove("open"));
-modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("open"); });
-document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.classList.contains("open")) modal.classList.remove("open"); });
+modalCloseBtn.addEventListener("click", () => closeMissionModal());
+modal.addEventListener("click", e => { if (e.target === modal) closeMissionModal(); });
+document.addEventListener("keydown", e => {
+  if (!modal.classList.contains("open")) return;
+  if (e.key === "Escape") {
+    closeMissionModal();
+    return;
+  }
+  if (e.key !== "Tab") return;
+  const focusable = Array.from(modalDialog.querySelectorAll('a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+});
 
 document.getElementById("modalStartBtn").addEventListener("click", () => {
   if (!currentMission) return;
@@ -330,24 +433,19 @@ function renderStats() {
   const toolStats = {};
   const dailyCounts = {};
 
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k || !k.startsWith(TOOLS_KEY_PREFIX)) continue;
-    try {
-      const events = JSON.parse(localStorage.getItem(k));
-      if (!Array.isArray(events)) continue;
-      const pid = k.replace(TOOLS_KEY_PREFIX, "").match(/^P\d+/)?.[0];
-      if (!pid) continue;
-      if (!toolStats[pid]) toolStats[pid] = { events: 0 };
-      events.forEach(e => {
-        totalEvents++;
-        toolStats[pid].events++;
-        if ((e.event_name === "page_unload" || e.event_name === "page_hidden") && e.dwell_ms) totalDwell += e.dwell_ms;
-        const day = (e.event_time || "").slice(0, 10);
-        if (day.length === 10) dailyCounts[day] = (dailyCounts[day] || 0) + 1;
-      });
-    } catch {}
-  }
+  getTrackedMetricsEntries().forEach(({ pid, events }) => {
+    if (!toolStats[pid]) toolStats[pid] = { events: 0 };
+    events.forEach(e => {
+      totalEvents++;
+      toolStats[pid].events++;
+      if ((e.event_name === "page_unload" || e.event_name === "page_hidden") && e.dwell_ms) {
+        // Cap at 2 hours per session to avoid absurd accumulation from idle tabs
+        totalDwell += Math.min(e.dwell_ms, 7200000);
+      }
+      const day = (e.event_time || "").slice(0, 10);
+      if (day.length === 10) dailyCounts[day] = (dailyCounts[day] || 0) + 1;
+    });
+  });
 
   const prog = loadProgress();
   const tasksDone = MISSIONS.filter(m => {
@@ -356,7 +454,7 @@ function renderStats() {
   }).length;
 
   document.getElementById("sTotalEvents").textContent = totalEvents.toLocaleString();
-  document.getElementById("sToolsUsed").textContent = used.size + "/50";
+  document.getElementById("sToolsUsed").textContent = Math.min(used.size, 50) + "/50";
   document.getElementById("sTasksDone").textContent = tasksDone;
   document.getElementById("sDwell").textContent = formatDuration(totalDwell);
 
@@ -410,21 +508,17 @@ function refreshHeroStats() {
 
   document.getElementById("statModules").textContent = modulesStarted;
   document.getElementById("statTasks").textContent = tasksDone;
-  document.getElementById("statTools").textContent = used.size;
+  document.getElementById("statTools").textContent = Math.min(used.size, 50);
 
   // Dwell time for hero
   let totalDwell = 0;
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k || !k.startsWith(TOOLS_KEY_PREFIX)) continue;
-    try {
-      const events = JSON.parse(localStorage.getItem(k));
-      if (!Array.isArray(events)) continue;
-      events.forEach(e => {
-        if ((e.event_name === "page_unload" || e.event_name === "page_hidden") && e.dwell_ms) totalDwell += e.dwell_ms;
-      });
-    } catch {}
-  }
+  getTrackedMetricsEntries().forEach(({ events }) => {
+    events.forEach(e => {
+      if ((e.event_name === "page_unload" || e.event_name === "page_hidden") && e.dwell_ms) {
+        totalDwell += Math.min(e.dwell_ms, 7200000);
+      }
+    });
+  });
   document.getElementById("statDwell").textContent = formatDuration(totalDwell);
 }
 
@@ -433,23 +527,29 @@ const exportBtn = document.getElementById("exportBtn");
 const clearBtn = document.getElementById("clearBtn");
 if (exportBtn) {
   exportBtn.addEventListener("click", () => {
-    const data = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k) data[k] = localStorage.getItem(k);
+    const data = getManagedStorageSnapshot();
+    if (!Object.keys(data).length) {
+      window.showToast?.("暂无可导出的学习数据", "info");
+      return;
     }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `journalism-tools-data-${new Date().toISOString().slice(0,10)}.json`;
     a.click(); URL.revokeObjectURL(url);
+    window.showToast?.("学习数据已导出", "success");
   });
 }
 if (clearBtn) {
   clearBtn.addEventListener("click", () => {
     if (confirm("确定清除全部学习数据？此操作不可撤销。")) {
-      localStorage.clear();
+      const removed = clearManagedStorage();
       renderMissions(); renderModules(); renderStats(); refreshHeroStats();
+      if (removed > 0) {
+        window.showToast?.("学习数据已清除", "warn");
+      } else {
+        window.showToast?.("当前没有可清除的学习数据", "info");
+      }
     }
   });
 }
