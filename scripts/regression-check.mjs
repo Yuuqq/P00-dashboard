@@ -1,0 +1,6464 @@
+import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+
+let chromium;
+try {
+  ({ chromium } = await import("playwright"));
+} catch {
+  console.error("Missing dependency: playwright. Install it in the workspace before running node scripts/regression-check.mjs.");
+  process.exit(1);
+}
+
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const CONTENT_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml"
+};
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function createStaticServer(rootDir) {
+  return http.createServer(async (req, res) => {
+    try {
+      const pathname = new URL(req.url || "/", "http://127.0.0.1").pathname;
+      const relativePath = pathname === "/" ? "index.html" : pathname.slice(1);
+      const filePath = path.resolve(rootDir, relativePath);
+      if (!filePath.startsWith(rootDir)) {
+        res.writeHead(403);
+        res.end("forbidden");
+        return;
+      }
+      const body = await readFile(filePath);
+      res.writeHead(200, {
+        "Content-Type": CONTENT_TYPES[path.extname(filePath)] || "application/octet-stream"
+      });
+      res.end(body);
+    } catch {
+      res.writeHead(404);
+      res.end("not found");
+    }
+  });
+}
+
+async function startServer() {
+  const server = createStaticServer(ROOT_DIR);
+  await new Promise((resolve, reject) => {
+    server.listen(0, "127.0.0.1", error => error ? reject(error) : resolve());
+  });
+  const address = server.address();
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    async close() {
+      await new Promise(resolve => server.close(() => resolve()));
+    }
+  };
+}
+
+async function createReadyPage(context, origin) {
+  const page = await context.newPage();
+  const requestFailures = [];
+  const consoleErrors = [];
+  page.on("requestfailed", request => {
+    requestFailures.push(`${request.method()} ${request.url()} -> ${request.failure()?.errorText || "failed"}`);
+  });
+  page.on("console", message => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+  assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+  await page.waitForFunction(() => !!window.pmMetrics && typeof window.ensureMissionStarted === "function");
+  assert(requestFailures.length === 0, `Asset request failures: ${requestFailures.join(" | ")}`);
+  assert(consoleErrors.length === 0, `Console errors: ${consoleErrors.join(" | ")}`);
+  return page;
+}
+
+async function runIsolatedCase(browser, origin, runCase) {
+  const context = await browser.newContext();
+  try {
+    return await runCase(context, origin);
+  } finally {
+    await context.close();
+  }
+}
+
+async function run() {
+  const server = await startServer();
+  const browser = await chromium.launch();
+  const results = [];
+
+  try {
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const progressKey = "p00_mission_progress";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({ [missionId]: { _started: true } }));
+
+          const originalSetItem = Storage.prototype.setItem;
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let callCount = 0;
+          window.pmMetrics.markTaskStart = function (...args) {
+            callCount += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+
+          Storage.prototype.setItem = function (key, value) {
+            if (key === taskKey || key === eventsKey) {
+              throw new Error(`forced setItem failure for ${key}`);
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.ensureMissionStarted(missionId);
+            window.ensureMissionStarted(missionId);
+            return {
+              callCount,
+              markerRaw: localStorage.getItem(taskKey),
+              eventsRaw: localStorage.getItem(eventsKey)
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.callCount === 2, `Dual-failure retry count mismatch: ${result.callCount}`);
+        assert(result.markerRaw === null && result.eventsRaw === null, "Dual-failure case persisted unexpected task-start state");
+        return { name: "dualFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const progressKey = "p00_mission_progress";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({ [missionId]: { _started: true } }));
+
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let callCount = 0;
+          window.pmMetrics.markTaskStart = function (...args) {
+            callCount += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+
+          try {
+            window.ensureMissionStarted(missionId);
+            localStorage.removeItem(taskKey);
+            localStorage.removeItem(eventsKey);
+            localStorage.setItem(progressKey, JSON.stringify({ [missionId]: { _started: true } }));
+            window.ensureMissionStarted(missionId);
+            return {
+              callCount,
+              markerRaw: localStorage.getItem(taskKey),
+              eventsCount: JSON.parse(localStorage.getItem(eventsKey) || "[]").length
+            };
+          } finally {
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.callCount === 2, `Replacement retry count mismatch: ${result.callCount}`);
+        assert(!!result.markerRaw && result.eventsCount >= 1, "Replacement case did not recreate task-start state");
+        return { name: "replacementCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === eventsKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            const tracked = window.pmMetrics.track("cta_click", { control_id: "probe" });
+            return {
+              persisted: tracked?.persisted === true,
+              eventsRaw: localStorage.getItem(eventsKey)
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.persisted === false, `track() did not detect silent event-log write failure: ${JSON.stringify(result)}`);
+        assert(result.eventsRaw === null, `Silent event-log write failure unexpectedly changed storage: ${JSON.stringify(result)}`);
+        return { name: "metricsSilentWriteFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(eventsKey, "{not-json");
+          const tracked = window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const summary = window.pmMetrics.getSummary();
+          let exportError = "none";
+          try {
+            window.pmMetrics.exportEvents();
+          } catch (error) {
+            exportError = error?.message || "unknown";
+          }
+          return {
+            persisted: tracked?.persisted === true,
+            rawAfter: localStorage.getItem(eventsKey),
+            summary,
+            exportError
+          };
+        });
+        assert(result.persisted === false, `track() did not fail when the existing metrics log was structurally corrupt: ${JSON.stringify(result)}`);
+        assert(result.rawAfter === "{not-json", `Corrupt existing metrics log was overwritten by a later tracked event: ${JSON.stringify(result)}`);
+        assert(result.summary.storage_readable === false && result.summary.total_events === null, `getSummary() did not report corrupt stored events as unreadable: ${JSON.stringify(result.summary)}`);
+        assert(result.exportError === "snapshot_failed", `exportEvents() did not stop on corrupt stored events: ${JSON.stringify(result)}`);
+        return { name: "metricsCorruptExistingKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(eventsKey, JSON.stringify([1]));
+          const tracked = window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const summary = window.pmMetrics.getSummary();
+          let exportError = "none";
+          try {
+            window.pmMetrics.exportEvents();
+          } catch (error) {
+            exportError = error?.message || "unknown";
+          }
+          return {
+            persisted: tracked?.persisted === true,
+            rawAfter: localStorage.getItem(eventsKey),
+            summary,
+            exportError
+          };
+        });
+        assert(result.persisted === false, `track() did not fail when the existing metrics log contained invalid array entries: ${JSON.stringify(result)}`);
+        assert(result.rawAfter === "[1]", `Invalid existing metrics array was overwritten by a later tracked event: ${JSON.stringify(result)}`);
+        assert(result.summary.storage_readable === false && result.summary.total_events === null, `getSummary() did not report invalid metric array entries as unreadable: ${JSON.stringify(result.summary)}`);
+        assert(result.exportError === "snapshot_failed", `exportEvents() did not stop on invalid metric array entries: ${JSON.stringify(result)}`);
+        return { name: "metricsInvalidArrayExistingKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const originalGetItem = Storage.prototype.getItem;
+          localStorage.clear();
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "cta_click",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "preexisting",
+            app_version: "pm-v1",
+            page_path: "/",
+            control_id: "before"
+          }]));
+          window.__pmForceUnreadableMetrics = true;
+          Storage.prototype.getItem = function (key) {
+            if (key === eventsKey) {
+              throw new Error("forced unreadable metrics key");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const tracked = window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const summary = window.pmMetrics.getSummary();
+            let exportError = "none";
+            try {
+              window.pmMetrics.exportEvents();
+            } catch (error) {
+              exportError = error?.message || "unknown";
+            }
+            return {
+              persisted: tracked?.persisted === true,
+              rawAfter: originalGetItem.call(localStorage, eventsKey),
+              summary,
+              exportError
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.persisted === false, `track() did not fail when the existing metrics key was unreadable: ${JSON.stringify(result)}`);
+        assert((result.rawAfter || "").includes("\"before\"") && !(result.rawAfter || "").includes("\"probe\""), `Unreadable metrics key should not be overwritten by a later tracked event: ${JSON.stringify(result)}`);
+        assert(result.summary.storage_readable === false && result.summary.total_events === null, `getSummary() did not report unreadable stored events as unreadable: ${JSON.stringify(result.summary)}`);
+        assert(result.exportError === "snapshot_failed", `exportEvents() did not stop on unreadable stored events: ${JSON.stringify(result)}`);
+        return { name: "metricsUnreadableExistingKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === taskKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            const started = window.pmMetrics.markTaskStart("learning_hub_overview_task");
+            return {
+              markerSet: started?.markerSet === true,
+              eventPersisted: started?.eventPersisted === true,
+              markerRaw: localStorage.getItem(taskKey),
+              eventNames: JSON.parse(localStorage.getItem(eventsKey) || "[]").map(event => event.event_name)
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.markerSet === false, `markTaskStart() did not detect silent marker write failure: ${JSON.stringify(result)}`);
+        assert(result.eventPersisted === true, `markTaskStart() should still persist the task_start event when only marker write silently fails: ${JSON.stringify(result)}`);
+        assert(result.markerRaw === null, `Silent marker write failure unexpectedly changed marker storage: ${JSON.stringify(result)}`);
+        assert(result.eventNames.includes("task_start"), `Task-start event was not preserved while marker write silently failed: ${JSON.stringify(result)}`);
+        return { name: "taskStartMarkerSilentWriteFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const originalGetItem = Storage.prototype.getItem;
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) {
+              throw new Error("forced unreadable task marker");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const started = window.pmMetrics.markTaskStart("learning_hub_overview_task");
+            return {
+              markerSet: started?.markerSet === true,
+              eventPersisted: started?.eventPersisted === true,
+              markerRaw: originalGetItem.call(localStorage, taskKey),
+              eventNames: JSON.parse(localStorage.getItem(eventsKey) || "[]").map(event => event.event_name)
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.markerSet === false, `markTaskStart() did not fail when the existing marker key was unreadable: ${JSON.stringify(result)}`);
+        assert(result.eventPersisted === true, `markTaskStart() should still persist the task_start event when only the existing marker key is unreadable: ${JSON.stringify(result)}`);
+        assert(result.markerRaw !== null, `Unreadable task marker should not be overwritten or removed by markTaskStart(): ${JSON.stringify(result)}`);
+        assert(result.eventNames.includes("task_start"), `Task-start event was not preserved when the existing marker key was unreadable: ${JSON.stringify(result)}`);
+        return { name: "taskStartMarkerUnreadableExistingKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const progressKey = "p00_mission_progress";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({ [missionId]: { _started: true } }));
+
+          const originalSetItem = Storage.prototype.setItem;
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let callCount = 0;
+          window.pmMetrics.markTaskStart = function (...args) {
+            callCount += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+
+          Storage.prototype.setItem = function (key, value) {
+            if (key === taskKey) throw new Error("forced marker failure");
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.ensureMissionStarted(missionId);
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            window.ensureMissionStarted(missionId);
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              callCount,
+              taskStartEvents: events.filter(event => event.event_name === "task_start" && event.task_name === "dashboard_mission_mission_ethics").length
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.callCount === 1, `Unrelated metric retry count mismatch: ${result.callCount}`);
+        assert(result.taskStartEvents === 1, `Unrelated metric duplicate task_start count: ${result.taskStartEvents}`);
+        return { name: "unrelatedMetricCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const progressKey = "p00_mission_progress";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+
+          const originalSetItem = Storage.prototype.setItem;
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let callCount = 0;
+          window.pmMetrics.markTaskStart = function (...args) {
+            callCount += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+
+          Storage.prototype.setItem = function (key, value) {
+            if (key === taskKey) throw new Error("forced marker failure");
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.ensureMissionStarted(missionId);
+            window.ensureMissionStarted(missionId);
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              callCount,
+              progressRaw: localStorage.getItem(progressKey),
+              taskStartEvents: events.filter(event => event.event_name === "task_start" && event.task_name === "dashboard_mission_mission_ethics").length
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.callCount === 1, `Initial-start retry count mismatch: ${result.callCount}`);
+        assert(!!result.progressRaw && result.taskStartEvents === 1, "Initial-start case did not preserve a single task_start");
+        return { name: "initialStartCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const otherMissionId = "mission-ai-content";
+          const progressKey = "p00_mission_progress";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({ [missionId]: { _started: true } }));
+
+          const originalSetItem = Storage.prototype.setItem;
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let callCount = 0;
+          window.pmMetrics.markTaskStart = function (...args) {
+            callCount += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+
+          Storage.prototype.setItem = function (key, value) {
+            if (key === taskKey) throw new Error("forced marker failure");
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.ensureMissionStarted(missionId);
+            localStorage.setItem(progressKey, JSON.stringify({
+              [missionId]: { _started: true },
+              [otherMissionId]: { _started: true }
+            }));
+            window.ensureMissionStarted(missionId);
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              callCount,
+              taskStartEvents: events.filter(event => event.event_name === "task_start" && event.task_name === "dashboard_mission_mission_ethics").length
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.callCount === 1, `Unrelated progress retry count mismatch: ${result.callCount}`);
+        assert(result.taskStartEvents === 1, `Unrelated progress duplicate task_start count: ${result.taskStartEvents}`);
+        return { name: "unrelatedProgressCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const themeKey = "journalism_toolbox_theme";
+          localStorage.removeItem(themeKey);
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === themeKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            const beforeTheme = document.documentElement.getAttribute("data-theme") || "";
+            document.getElementById("darkToggleBtn")?.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+            const warning = events.find(event => event.event_name === "status_error_signal" && event.status_text === "主题偏好未写入浏览器存储，刷新后将恢复系统外观。");
+            return {
+              beforeTheme,
+              afterTheme: document.documentElement.getAttribute("data-theme") || "",
+              storedTheme: localStorage.getItem(themeKey),
+              toastText: document.querySelector("#toastContainer [role='alert'] span[style*='flex: 1']")?.textContent || "",
+              warningTracked: !!warning
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.beforeTheme !== result.afterTheme, `Dark toggle did not still update the current page theme after silent preference write failure: ${JSON.stringify(result)}`);
+        assert(result.storedTheme === null, `Dark toggle silently persisted theme despite forced no-op write: ${JSON.stringify(result)}`);
+        assert(result.toastText === "主题偏好未写入浏览器存储，刷新后将恢复系统外观。", `Dark toggle did not surface the preference write warning toast: ${JSON.stringify(result)}`);
+        assert(result.warningTracked === true, `Dark toggle storage warning was not tracked as a status signal: ${JSON.stringify(result)}`);
+        return { name: "themePreferenceSilentWriteFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const themeKey = "journalism_toolbox_theme";
+          localStorage.removeItem(themeKey);
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === themeKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            document.getElementById("darkToggleBtn")?.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+            return {
+              statusTexts: events.filter(event => event.event_name === "status_success_signal" || event.event_name === "status_error_signal").map(event => event.status_text),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length,
+              visibleToastText: document.querySelector("#toastContainer [role='alert'] span[style*='flex: 1']")?.textContent || ""
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.statusTexts.filter(text => text === "学习数据已导出").length === 1, `Theme warning should not duplicate a prior tracked toast: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "主题偏好未写入浏览器存储，刷新后将恢复系统外观。").length === 1, `Theme warning should record exactly one warning signal: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Theme warning should replace prior visible toasts with a single warning toast: ${JSON.stringify(result)}`);
+        assert(result.visibleToastText === "主题偏好未写入浏览器存储，刷新后将恢复系统外观。", `Theme warning did not remain as the only visible toast: ${JSON.stringify(result)}`);
+        return { name: "themePreferenceDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const themeKey = "journalism_toolbox_theme";
+          localStorage.removeItem(themeKey);
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalReplaceToasts = window.replaceToasts;
+          const originalSetItem = Storage.prototype.setItem;
+          window.replaceToasts = undefined;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === themeKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            document.getElementById("darkToggleBtn")?.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+            return {
+              statusTexts: events.filter(event => event.event_name === "status_success_signal" || event.event_name === "status_error_signal").map(event => event.status_text),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length,
+              visibleToastText: document.querySelector("#toastContainer [role='alert'] span[style*='flex: 1']")?.textContent || ""
+            };
+          } finally {
+            window.replaceToasts = originalReplaceToasts;
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.statusTexts.filter(text => text === "学习数据已导出").length === 1, `Theme warning fallback should not duplicate a prior tracked toast: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "主题偏好未写入浏览器存储，刷新后将恢复系统外观。").length === 1, `Theme warning fallback should record exactly one warning signal: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Theme warning fallback should replace prior visible toasts with a single warning toast: ${JSON.stringify(result)}`);
+        assert(result.visibleToastText === "主题偏好未写入浏览器存储，刷新后将恢复系统外观。", `Theme warning fallback did not leave the warning as the only visible toast: ${JSON.stringify(result)}`);
+        return { name: "themePreferenceFallbackWithoutReplaceToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const themeKey = "journalism_toolbox_theme";
+          const originalGetItem = Storage.prototype.getItem;
+          localStorage.clear();
+          localStorage.setItem(themeKey, "dark");
+
+          Storage.prototype.getItem = function (key) {
+            if (key === themeKey) {
+              throw new Error("forced unreadable theme key");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const beforeTheme = document.documentElement.getAttribute("data-theme") || "";
+            document.getElementById("darkToggleBtn")?.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+            const warning = events.find(event => event.event_name === "status_error_signal" && event.status_text === "主题偏好未写入浏览器存储，刷新后将恢复系统外观。");
+            return {
+              beforeTheme,
+              afterTheme: document.documentElement.getAttribute("data-theme") || "",
+              storedThemeRaw: originalGetItem.call(localStorage, themeKey),
+              toastText: document.querySelector("#toastContainer [role='alert'] span[style*='flex: 1']")?.textContent || "",
+              warningTracked: !!warning
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.beforeTheme !== result.afterTheme, `Dark toggle did not still update current page theme with unreadable stored preference: ${JSON.stringify(result)}`);
+        assert(result.storedThemeRaw === "dark", `Dark toggle overwrote unreadable existing theme storage: ${JSON.stringify(result)}`);
+        assert(result.toastText === "主题偏好未写入浏览器存储，刷新后将恢复系统外观。", `Dark toggle did not warn on unreadable existing theme storage: ${JSON.stringify(result)}`);
+        assert(result.warningTracked === true, `Unreadable existing theme warning was not tracked as a status signal: ${JSON.stringify(result)}`);
+        return { name: "themePreferenceUnreadableExistingKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        const before = await pageB.locator("#statTools").textContent();
+        await pageA.evaluate(() => {
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            "mission-ethics": { _started: true, step0: true }
+          }));
+        });
+        await pageB.waitForFunction(() => document.getElementById("statTools")?.textContent === "1");
+        const after = await pageB.locator("#statTools").textContent();
+        assert(before === "0" && after === "1", `Cross-tab sync mismatch: before=${before} after=${after}`);
+        return { name: "crossTabCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        window.__pmOldCacheSeeded = false;
+        document.addEventListener("DOMContentLoaded", async () => {
+          try {
+            const cache = await caches.open("journalism-tool-p00-old");
+            await cache.put("./stale.txt", new Response("stale"));
+            window.__pmOldCacheSeeded = true;
+          } catch {}
+        }, { once: true });
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(async () => {
+          if ("serviceWorker" in navigator) {
+            await navigator.serviceWorker.ready;
+          }
+          await new Promise(resolve => setTimeout(resolve, 200));
+          return {
+            seeded: window.__pmOldCacheSeeded,
+            cacheNames: await caches.keys()
+          };
+        });
+        assert(result.seeded === true, `Old cache seed did not run before service worker activation: ${JSON.stringify(result)}`);
+        assert(result.cacheNames.includes("journalism-tool-p00-v2"), `Current service worker cache missing after activation: ${JSON.stringify(result.cacheNames)}`);
+        assert(!result.cacheNames.includes("journalism-tool-p00-old"), `Old prefixed cache was not removed on service worker activation: ${JSON.stringify(result.cacheNames)}`);
+        return { name: "serviceWorkerCacheCleanupCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const readiness = await page.evaluate(async () => {
+          if (!("serviceWorker" in navigator)) return { supported: false, active: false };
+          const registration = await navigator.serviceWorker.ready;
+          return {
+            supported: true,
+            active: !!registration.active
+          };
+        });
+        assert(readiness.supported && readiness.active, `Service worker did not become active: ${JSON.stringify(readiness)}`);
+
+        await context.setOffline(true);
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await page.waitForFunction(() => document.querySelector(".hero h1")?.textContent?.includes("新闻素养学习中枢"));
+        const result = await page.evaluate(async () => {
+          const beforeTheme = document.documentElement.getAttribute("data-theme") || "";
+          document.getElementById("darkToggleBtn")?.click();
+          const afterTheme = document.documentElement.getAttribute("data-theme") || "";
+          window.showToast("离线提示可用", "info", 0);
+          const styleResponse = await fetch("./styles.css");
+          const darkToggleResponse = await fetch("./shared/dark-toggle.js");
+          const toastResponse = await fetch("./shared/toast.js");
+          const manifestResponse = await fetch("./manifest.json");
+          const iconResponse = await fetch("./icon-192.png");
+          const manifest = manifestResponse.ok ? await manifestResponse.json() : null;
+          return {
+            title: document.title,
+            heroText: document.querySelector(".hero h1")?.textContent || "",
+            darkTogglePresent: !!document.getElementById("darkToggleBtn"),
+            themeBefore: beforeTheme,
+            themeAfter: afterTheme,
+            toastPresent: !!document.querySelector("#toastContainer > [role='status']"),
+            styleOk: styleResponse.ok,
+            styleStatus: styleResponse.status,
+            darkToggleOk: darkToggleResponse.ok,
+            darkToggleStatus: darkToggleResponse.status,
+            toastOk: toastResponse.ok,
+            toastStatus: toastResponse.status,
+            manifestOk: manifestResponse.ok,
+            manifestStatus: manifestResponse.status,
+            manifestName: manifest?.name || "",
+            manifestIcon: manifest?.icons?.[0]?.src || "",
+            iconOk: iconResponse.ok,
+            iconStatus: iconResponse.status,
+            iconBytes: (await iconResponse.arrayBuffer()).byteLength
+          };
+        });
+        assert(result.title === "新闻素养学习中枢", `Offline reload title mismatch: ${result.title}`);
+        assert(result.heroText.includes("新闻素养学习中枢"), `Offline reload hero mismatch: ${result.heroText}`);
+        assert(result.styleOk && result.styleStatus === 200, `Offline stylesheet fetch failed: ${JSON.stringify(result)}`);
+        assert(result.darkTogglePresent === true, `Offline shell did not initialize shared dark-toggle UI: ${JSON.stringify(result)}`);
+        assert(result.themeBefore !== result.themeAfter, `Offline dark-toggle interaction did not update theme state: ${JSON.stringify(result)}`);
+        assert(result.toastPresent === true, `Offline toast UI did not render after reload: ${JSON.stringify(result)}`);
+        assert(result.darkToggleOk && result.darkToggleStatus === 200, `Offline dark-toggle script fetch failed: ${JSON.stringify(result)}`);
+        assert(result.toastOk && result.toastStatus === 200, `Offline toast script fetch failed: ${JSON.stringify(result)}`);
+        assert(result.manifestOk && result.manifestStatus === 200, `Offline manifest fetch failed: ${JSON.stringify(result)}`);
+        assert(result.manifestName === "新闻素养学习中枢" && result.manifestIcon === "./icon-192.png", `Offline manifest contents were not cached correctly: ${JSON.stringify(result)}`);
+        assert(result.iconOk && result.iconStatus === 200 && result.iconBytes > 0, `Offline app icon fetch failed: ${JSON.stringify(result)}`);
+        return { name: "offlineShellCase", status: "passed" };
+      } finally {
+        await context.setOffline(false);
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        window.__pmForcedSwRegisterFailure = false;
+        if (!("serviceWorker" in navigator) || !navigator.serviceWorker) return;
+        try {
+          Object.defineProperty(navigator.serviceWorker, "register", {
+            configurable: true,
+            writable: true,
+            value: async function () {
+              window.__pmForcedSwRegisterFailure = true;
+              throw new Error("forced service worker registration failure");
+            }
+          });
+        } catch {}
+      });
+      const requestFailures = [];
+      const consoleErrors = [];
+      page.on("requestfailed", request => {
+        requestFailures.push(`${request.method()} ${request.url()} -> ${request.failure()?.errorText || "failed"}`);
+      });
+      page.on("console", message => {
+        if (message.type() === "error") consoleErrors.push(message.text());
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      await page.waitForFunction(() => !!window.pmMetrics && typeof window.ensureMissionStarted === "function");
+      assert(requestFailures.length === 0, `Asset request failures: ${requestFailures.join(" | ")}`);
+      assert(consoleErrors.length === 0, `Console errors: ${consoleErrors.join(" | ")}`);
+      try {
+        const result = await page.evaluate(async () => {
+          await new Promise(resolve => setTimeout(resolve, 50));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            patched: window.__pmForcedSwRegisterFailure === true,
+            warningCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "离线缓存初始化失败，页面仍可在线使用。").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length,
+            toastText: document.querySelector("#toastContainer")?.textContent || ""
+          };
+        });
+        assert(result.patched === true, `Service worker register override did not run before page init: ${JSON.stringify(result)}`);
+        assert(result.warningCount === 1, `Service worker registration failure should record exactly one warning/error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Service worker registration warning should not block later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Service worker registration warning should leave exactly one visible toast: ${JSON.stringify(result)}`);
+        assert(result.toastText.includes("离线缓存初始化失败，页面仍可在线使用。"), `Service worker registration warning toast text mismatch: ${JSON.stringify(result)}`);
+        return { name: "serviceWorkerRegisterFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true, step0: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "session-check",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          localStorage.setItem(taskKey, String(Date.now()));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) throw new Error("forced task key read failure");
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const backupStatus = window.getBackupStorageSnapshotStatus();
+            const payload = window.buildExportPayload();
+            const restored = window.restoreManagedStorage({
+              [progressKey]: JSON.stringify({
+                "mission-ai-content": { _started: true, step0: true }
+              })
+            });
+            return {
+              backupUnreadable: backupStatus.unreadable,
+              backupReadable: backupStatus.readable,
+              exportedKeys: Object.keys(payload.data || {}).sort(),
+              restored,
+              restoredProgressRaw: localStorage.getItem(progressKey)
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.backupReadable === true && result.backupUnreadable === 0, `Unreadable task-start key leaked into backup status: ${JSON.stringify(result)}`);
+        assert(result.exportedKeys.includes("p00_mission_progress"), `Export payload missing progress after unreadable task-start key: ${JSON.stringify(result.exportedKeys)}`);
+        assert(result.restored === 1, `Restore count mismatch with unreadable task-start key: ${result.restored}`);
+        assert((result.restoredProgressRaw || "").includes("mission-ai-content"), "Restore did not apply replacement progress with unreadable task-start key present");
+        return { name: "unreadableTaskKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+
+          const originalBuildExportPayload = window.buildExportPayload;
+          window.buildExportPayload = function () {
+            throw new Error("snapshot_failed");
+          };
+
+          try {
+            document.getElementById("exportBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            return {
+              toastText: document.querySelector("#toastContainer [role='alert'] span[style*='flex: 1']")?.textContent || ""
+            };
+          } finally {
+            window.buildExportPayload = originalBuildExportPayload;
+          }
+        });
+        assert(result.toastText === "导出失败：当前浏览器存储状态已变化，请刷新后重试。", `Export button did not surface a toast when buildExportPayload() threw: ${JSON.stringify(result)}`);
+        return { name: "exportButtonBuildFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, "{not-json");
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          document.getElementById("exportBtn").click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "旧提示").length,
+            exportErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "导出失败：当前浏览器存储存在不可读数据，无法生成完整备份。").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.priorToastCount === 1, `Export unreadable preflight should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.exportErrorCount === 1, `Export unreadable preflight should record exactly one export error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Export unreadable preflight toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Export unreadable preflight should leave exactly one visible error toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "exportButtonUnreadableDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          document.getElementById("exportBtn").click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "旧提示").length,
+            exportInfoSignalCount: events.filter(event =>
+              (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+              && event.status_text === "暂无可导出的学习数据"
+            ).length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.priorToastCount === 1, `Export empty-state info should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.exportInfoSignalCount === 0, `Export empty-state info toast should remain untracked: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Export empty-state info toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Export empty-state info should leave exactly one visible info toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "exportButtonEmptyDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.showToast("旧提示", "success", 3000, { track: false });
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalReplaceToasts = window.replaceToasts;
+          window.replaceToasts = undefined;
+          try {
+            document.getElementById("exportBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "旧提示"
+              ).length,
+              exportInfoSignalCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "暂无可导出的学习数据"
+              ).length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.replaceToasts = originalReplaceToasts;
+          }
+        });
+        assert(result.priorToastCount === 0, `Export empty-state fallback setup should keep the stale visible toast untracked so storage stays empty: ${JSON.stringify(result)}`);
+        assert(result.exportInfoSignalCount === 0, `Export empty-state fallback info toast should remain untracked: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Export empty-state fallback toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Export empty-state fallback should leave exactly one visible info toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "exportButtonEmptyFallbackWithoutReplaceToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          document.getElementById("exportBtn").click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.statusTexts.filter(text => text === "旧提示").length === 1, `Export success should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "学习数据已导出").length === 1, `Export success should record exactly one export success signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Export success toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Export success should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "exportButtonDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalReplaceToasts = window.replaceToasts;
+          window.replaceToasts = undefined;
+          try {
+            document.getElementById("exportBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.replaceToasts = originalReplaceToasts;
+          }
+        });
+        assert(result.statusTexts.filter(text => text === "旧提示").length === 1, `Export success fallback should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "学习数据已导出").length === 1, `Export success fallback should record exactly one export success signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Export success fallback toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Export success fallback should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "exportButtonFallbackWithoutReplaceToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          const originalOpen = window.open;
+          window.open = () => null;
+          try {
+            window.openMissionModal("mission-ethics");
+            document.getElementById("modalStartBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              statusTexts: events.filter(event => event.event_name === "status_success_signal" || event.event_name === "status_error_signal").map(event => event.status_text),
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.open = originalOpen;
+          }
+        });
+        assert(result.statusTexts.filter(text => text === "旧提示").length === 1, `Popup warning should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "浏览器拦截了新标签页，请允许弹窗后重试").length === 1, `Popup warning should record exactly one warning signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Popup warning toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Popup warning should leave exactly one visible toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "popupBlockedDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          const originalOpen = window.open;
+          const originalReplaceToasts = window.replaceToasts;
+          window.open = () => null;
+          window.replaceToasts = undefined;
+          try {
+            window.openMissionModal("mission-ethics");
+            document.getElementById("modalStartBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              statusTexts: events.filter(event => event.event_name === "status_success_signal" || event.event_name === "status_error_signal").map(event => event.status_text),
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.open = originalOpen;
+            window.replaceToasts = originalReplaceToasts;
+          }
+        });
+        assert(result.statusTexts.filter(text => text === "旧提示").length === 1, `Popup warning fallback should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "浏览器拦截了新标签页，请允许弹窗后重试").length === 1, `Popup warning fallback should record exactly one warning signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Popup warning fallback toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Popup warning fallback should leave exactly one visible toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "popupBlockedFallbackWithoutReplaceToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === progressKey) {
+              throw new Error("forced unreadable progress key");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            return {
+              toastText: document.querySelector("#toastContainer [role='alert'] span[style*='flex: 1']")?.textContent || ""
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.toastText === "当前浏览器存储存在异常学习数据，导出与覆盖恢复已停用。", `Unreadable backup-critical storage warning toast mismatch: ${JSON.stringify(result)}`);
+        return { name: "unreadableProgressWarningCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalReplaceToasts = window.replaceToasts;
+          const originalGetItem = Storage.prototype.getItem;
+          window.replaceToasts = undefined;
+          Storage.prototype.getItem = function (key) {
+            if (key === progressKey) {
+              throw new Error("forced unreadable progress key");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "旧提示").length,
+              warningSignalCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "当前浏览器存储存在异常学习数据，导出与覆盖恢复已停用。"
+              ).length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.replaceToasts = originalReplaceToasts;
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Unreadable backup-critical warning fallback should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.warningSignalCount === 0, `Unreadable backup-critical warning fallback should keep the warning toast untracked: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Unreadable backup-critical warning fallback should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Unreadable backup-critical warning fallback should leave exactly one visible warning toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "unreadableProgressWarningFallbackWithoutReplaceToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(eventsKey, "{not-json");
+          try {
+            const managedError = (() => {
+              try {
+                window.getManagedStorageSnapshot();
+                return "none";
+              } catch (error) {
+                return error?.message || "unknown";
+              }
+            })();
+            const backupError = (() => {
+              try {
+                window.getBackupStorageSnapshot();
+                return "none";
+              } catch (error) {
+                return error?.message || "unknown";
+              }
+            })();
+            window.clearManagedStorageTransactional();
+            return {
+              clearError: "none",
+              managedError,
+              backupError,
+              exportError: (() => {
+                try {
+                  window.buildExportPayload();
+                  return "none";
+                } catch (error) {
+                  return error?.message || "unknown";
+                }
+              })(),
+              managedSnapshotKeys: Object.keys(window.getManagedStorageSnapshotStatus().snapshot || {}),
+              backupSnapshotKeys: Object.keys(window.getBackupStorageSnapshotStatus().snapshot || {}),
+              managedUnreadable: window.getManagedStorageSnapshotStatus().unreadable,
+              backupUnreadable: window.getBackupStorageSnapshotStatus().unreadable
+            };
+          } catch (error) {
+            return {
+              clearError: error?.message || "unknown",
+              managedError: (() => {
+                try {
+                  window.getManagedStorageSnapshot();
+                  return "none";
+                } catch (nextError) {
+                  return nextError?.message || "unknown";
+                }
+              })(),
+              backupError: (() => {
+                try {
+                  window.getBackupStorageSnapshot();
+                  return "none";
+                } catch (nextError) {
+                  return nextError?.message || "unknown";
+                }
+              })(),
+              exportError: (() => {
+                try {
+                  window.buildExportPayload();
+                  return "none";
+                } catch (nextError) {
+                  return nextError?.message || "unknown";
+                }
+              })(),
+              managedSnapshotKeys: Object.keys(window.getManagedStorageSnapshotStatus().snapshot || {}),
+              backupSnapshotKeys: Object.keys(window.getBackupStorageSnapshotStatus().snapshot || {}),
+              managedUnreadable: window.getManagedStorageSnapshotStatus().unreadable,
+              backupUnreadable: window.getBackupStorageSnapshotStatus().unreadable
+            };
+          }
+        });
+        assert(result.managedUnreadable === 1, `Managed snapshot status did not flag corrupt readable metrics as unreadable: ${JSON.stringify(result)}`);
+        assert(result.backupUnreadable === 1, `Backup snapshot status did not flag corrupt readable metrics as unreadable: ${JSON.stringify(result)}`);
+        assert(result.managedSnapshotKeys.length === 0 && result.backupSnapshotKeys.length === 0, `Corrupt readable metrics should not appear inside status snapshots: ${JSON.stringify(result)}`);
+        assert(result.managedError === "snapshot_failed", `getManagedStorageSnapshot() did not stop on corrupt readable metrics: ${JSON.stringify(result)}`);
+        assert(result.backupError === "snapshot_failed", `getBackupStorageSnapshot() did not stop on corrupt readable metrics: ${JSON.stringify(result)}`);
+        assert(result.clearError === "snapshot_failed", `Transactional clear did not stop on corrupt readable metrics: ${JSON.stringify(result)}`);
+        assert(result.exportError === "snapshot_failed", `buildExportPayload() did not stop on corrupt readable metrics: ${JSON.stringify(result)}`);
+        return { name: "corruptMetricsSnapshotStatusCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) {
+              throw new Error("forced unreadable mission marker");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const cleared = window.clearManagedStorageTransactional();
+            return {
+              error: "none",
+              cleared,
+              keys: Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).sort()
+            };
+          } catch (error) {
+            return {
+              error: error?.message || "unknown",
+              keys: Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).sort()
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.error === "none", `Transactional clear should not be blocked by an unreadable task-start marker: ${JSON.stringify(result)}`);
+        assert(result.keys.length === 0, `Transactional clear did not remove all managed keys with an unreadable task-start marker present: ${JSON.stringify(result)}`);
+        return { name: "clearUnreadableTaskKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(eventsKey, JSON.stringify([1]));
+          return {
+            managedUnreadable: window.getManagedStorageSnapshotStatus().unreadable,
+            backupUnreadable: window.getBackupStorageSnapshotStatus().unreadable,
+            exportError: (() => {
+              try {
+                window.buildExportPayload();
+                return "none";
+              } catch (error) {
+                return error?.message || "unknown";
+              }
+            })()
+          };
+        });
+        assert(result.managedUnreadable === 1, `Managed snapshot status did not flag invalid metric array entries as unreadable: ${JSON.stringify(result)}`);
+        assert(result.backupUnreadable === 1, `Backup snapshot status did not flag invalid metric array entries as unreadable: ${JSON.stringify(result)}`);
+        assert(result.exportError === "snapshot_failed", `buildExportPayload() did not stop on invalid metric array entries: ${JSON.stringify(result)}`);
+        return { name: "invalidMetricsSnapshotStatusCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, "{not-json");
+          try {
+            const managedError = (() => {
+              try {
+                window.getManagedStorageSnapshot();
+                return "none";
+              } catch (error) {
+                return error?.message || "unknown";
+              }
+            })();
+            const backupError = (() => {
+              try {
+                window.getBackupStorageSnapshot();
+                return "none";
+              } catch (error) {
+                return error?.message || "unknown";
+              }
+            })();
+            window.clearManagedStorageTransactional();
+            return {
+              clearError: "none",
+              managedError,
+              backupError,
+              exportError: (() => {
+                try {
+                  window.buildExportPayload();
+                  return "none";
+                } catch (error) {
+                  return error?.message || "unknown";
+                }
+              })(),
+              managedSnapshotKeys: Object.keys(window.getManagedStorageSnapshotStatus().snapshot || {}),
+              backupSnapshotKeys: Object.keys(window.getBackupStorageSnapshotStatus().snapshot || {}),
+              managedUnreadable: window.getManagedStorageSnapshotStatus().unreadable,
+              backupUnreadable: window.getBackupStorageSnapshotStatus().unreadable
+            };
+          } catch (error) {
+            return {
+              clearError: error?.message || "unknown",
+              managedError: (() => {
+                try {
+                  window.getManagedStorageSnapshot();
+                  return "none";
+                } catch (nextError) {
+                  return nextError?.message || "unknown";
+                }
+              })(),
+              backupError: (() => {
+                try {
+                  window.getBackupStorageSnapshot();
+                  return "none";
+                } catch (nextError) {
+                  return nextError?.message || "unknown";
+                }
+              })(),
+              exportError: (() => {
+                try {
+                  window.buildExportPayload();
+                  return "none";
+                } catch (nextError) {
+                  return nextError?.message || "unknown";
+                }
+              })(),
+              managedSnapshotKeys: Object.keys(window.getManagedStorageSnapshotStatus().snapshot || {}),
+              backupSnapshotKeys: Object.keys(window.getBackupStorageSnapshotStatus().snapshot || {}),
+              managedUnreadable: window.getManagedStorageSnapshotStatus().unreadable,
+              backupUnreadable: window.getBackupStorageSnapshotStatus().unreadable
+            };
+          }
+        });
+        assert(result.managedUnreadable === 1, `Managed snapshot status did not flag corrupt readable progress as unreadable: ${JSON.stringify(result)}`);
+        assert(result.backupUnreadable === 1, `Backup snapshot status did not flag corrupt readable progress as unreadable: ${JSON.stringify(result)}`);
+        assert(result.managedSnapshotKeys.length === 0 && result.backupSnapshotKeys.length === 0, `Corrupt readable progress should not appear inside status snapshots: ${JSON.stringify(result)}`);
+        assert(result.managedError === "snapshot_failed", `getManagedStorageSnapshot() did not stop on corrupt readable progress: ${JSON.stringify(result)}`);
+        assert(result.backupError === "snapshot_failed", `getBackupStorageSnapshot() did not stop on corrupt readable progress: ${JSON.stringify(result)}`);
+        assert(result.clearError === "snapshot_failed", `Transactional clear did not stop on corrupt readable progress: ${JSON.stringify(result)}`);
+        assert(result.exportError === "snapshot_failed", `buildExportPayload() did not stop on corrupt readable progress: ${JSON.stringify(result)}`);
+        return { name: "corruptProgressSnapshotStatusCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, "{not-json");
+          const started = window.ensureMissionStarted("mission-ethics");
+          return {
+            started: started !== null,
+            progressRaw: localStorage.getItem(progressKey),
+            markerRaw: localStorage.getItem(taskKey),
+            taskStartCount: JSON.parse(localStorage.getItem(eventsKey) || "[]")
+              .filter(event => event.event_name === "task_start" && event.task_name === "dashboard_mission_mission_ethics")
+              .length
+          };
+        });
+        assert(result.started === false, `ensureMissionStarted should not overwrite corrupt progress storage: ${JSON.stringify(result)}`);
+        assert(result.progressRaw === "{not-json", `Corrupt progress payload was overwritten by mission start: ${JSON.stringify(result)}`);
+        assert(result.markerRaw === null, `Mission start should not create a marker when progress storage is corrupt: ${JSON.stringify(result)}`);
+        assert(result.taskStartCount === 0, `Mission start should not emit task_start when progress storage is corrupt: ${JSON.stringify(result)}`);
+        return { name: "corruptProgressWriteGuardCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === progressKey && String(value).includes("mission-ai-content")) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            try {
+              window.restoreManagedStorage({
+                [progressKey]: JSON.stringify({
+                  "mission-ai-content": { _started: true }
+                })
+              });
+              return { error: "none", progressRaw: localStorage.getItem(progressKey) };
+            } catch (error) {
+              return {
+                error: error?.message || "unknown",
+                progressRaw: localStorage.getItem(progressKey)
+              };
+            }
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.error === "write_failed", `Restore did not detect silent write failure for managed snapshot entry: ${JSON.stringify(result)}`);
+        assert((result.progressRaw || "").includes("mission-ethics"), `Restore rollback did not preserve original progress after silent write failure: ${JSON.stringify(result)}`);
+        return { name: "restoreSilentWriteFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "clear-rollback",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+
+          const originalConfirm = window.confirm;
+          const originalRemoveItem = Storage.prototype.removeItem;
+          window.confirm = () => true;
+          Storage.prototype.removeItem = function (key) {
+            if (key === eventsKey) throw new Error("forced clear remove failure");
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            document.getElementById("clearBtn").click();
+            return {
+              progressRaw: localStorage.getItem(progressKey),
+              eventsRaw: localStorage.getItem(eventsKey)
+            };
+          } finally {
+            window.confirm = originalConfirm;
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert((result.progressRaw || "").includes("mission-ethics"), `Clear rollback did not restore progress after partial remove failure: ${JSON.stringify(result)}`);
+        assert((result.eventsRaw || "").includes("\"page_view\""), `Clear rollback did not preserve metrics after partial remove failure: ${JSON.stringify(result)}`);
+        return { name: "clearRollbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "clear-silent-rollback",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+
+          const originalConfirm = window.confirm;
+          const originalRemoveItem = Storage.prototype.removeItem;
+          window.confirm = () => true;
+          Storage.prototype.removeItem = function (key) {
+            if (key === eventsKey) return;
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            document.getElementById("clearBtn").click();
+            return {
+              progressRaw: localStorage.getItem(progressKey),
+              eventsRaw: localStorage.getItem(eventsKey)
+            };
+          } finally {
+            window.confirm = originalConfirm;
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert((result.progressRaw || "").includes("mission-ethics"), `Clear rollback did not restore progress after silent removeItem no-op: ${JSON.stringify(result)}`);
+        assert((result.eventsRaw || "").includes("\"page_view\""), `Clear rollback did not preserve metrics after silent removeItem no-op: ${JSON.stringify(result)}`);
+        return { name: "clearSilentRollbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "before-clear",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+
+          const originalConfirm = window.confirm;
+          window.confirm = () => true;
+          try {
+            document.getElementById("clearBtn").click();
+            return {
+              keys: Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).sort(),
+              eventsRaw: localStorage.getItem(eventsKey),
+              progressRaw: localStorage.getItem(progressKey)
+            };
+          } finally {
+            window.confirm = originalConfirm;
+          }
+        });
+        assert(result.keys.length === 0, `Successful clear should not immediately recreate managed storage entries: ${JSON.stringify(result)}`);
+        assert(result.eventsRaw === null && result.progressRaw === null, `Successful clear left managed storage behind: ${JSON.stringify(result)}`);
+        return { name: "clearButtonLeavesStorageEmptyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalConfirm = window.confirm;
+          window.confirm = () => true;
+          try {
+            document.getElementById("clearBtn").click();
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              eventNames: events.map(event => event.event_name + (event.control_id ? ":" + event.control_id : "")),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.confirm = originalConfirm;
+          }
+        });
+        assert(result.eventNames.join(",") === "page_view,cta_click:probe", `Successful clear should not resurrect pre-clear toast signals on later interaction: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Successful clear should replace prior toasts with exactly one untracked outcome toast: ${JSON.stringify(result)}`);
+        return { name: "clearButtonDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalConfirm = window.confirm;
+          const originalReplaceToasts = window.replaceToasts;
+          window.confirm = () => true;
+          window.replaceToasts = undefined;
+          try {
+            document.getElementById("clearBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              eventNames: events.map(event => event.event_name + (event.control_id ? ":" + event.control_id : "")),
+              clearSignalCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "学习数据已清除"
+              ).length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.confirm = originalConfirm;
+            window.replaceToasts = originalReplaceToasts;
+          }
+        });
+        assert(result.eventNames.join(",") === "page_view,cta_click:probe", `Successful clear fallback should not resurrect pre-clear toast signals on later interaction: ${JSON.stringify(result)}`);
+        assert(result.clearSignalCount === 0, `Successful clear fallback should keep its outcome toast untracked: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Successful clear fallback should replace prior toasts with exactly one untracked outcome toast: ${JSON.stringify(result)}`);
+        return { name: "clearButtonFallbackWithoutReplaceToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.showToast("旧提示", "success", 3000, { track: false });
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalConfirm = window.confirm;
+          window.confirm = () => true;
+          try {
+            document.getElementById("clearBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "旧提示"
+              ).length,
+              clearInfoSignalCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "当前没有可清除的学习数据"
+              ).length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.confirm = originalConfirm;
+          }
+        });
+        assert(result.priorToastCount === 0, `Empty clear info setup should keep the stale visible toast untracked so the storage stays empty: ${JSON.stringify(result)}`);
+        assert(result.clearInfoSignalCount === 0, `Empty clear info toast should remain untracked: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Empty clear info toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Empty clear should leave exactly one visible info toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "clearButtonEmptyDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalConfirm = window.confirm;
+          const originalRemoveItem = Storage.prototype.removeItem;
+          window.confirm = () => true;
+          Storage.prototype.removeItem = function (key) {
+            if (key === eventsKey) throw new Error("forced clear remove failure");
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            document.getElementById("clearBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              clearErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "清除失败：浏览器存储删除不完整，已保留原有数据。").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.confirm = originalConfirm;
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Clear rollback should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.clearErrorCount === 1, `Clear rollback should record exactly one clear failure signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Clear rollback toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Clear rollback should leave exactly one visible failure toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "clearRollbackDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, "{not-json");
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalConfirm = window.confirm;
+          window.confirm = () => true;
+          try {
+            document.getElementById("clearBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              clearErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "清除失败：当前浏览器存储存在不可读数据，无法安全清除。").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.confirm = originalConfirm;
+          }
+        });
+        assert(result.priorToastCount === 1, `Clear snapshot failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.clearErrorCount === 1, `Clear snapshot failure should record exactly one unreadable-storage error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Clear snapshot failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Clear snapshot failure should leave exactly one visible failure toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "clearSnapshotFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "clear-rollback-failed",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalConfirm = window.confirm;
+          const originalRemoveItem = Storage.prototype.removeItem;
+          const originalSetItem = Storage.prototype.setItem;
+          window.confirm = () => true;
+          Storage.prototype.removeItem = function (key) {
+            if (key === eventsKey) {
+              return;
+            }
+            return originalRemoveItem.call(this, key);
+          };
+          Storage.prototype.setItem = function (key, value) {
+            if (key === progressKey && String(value).includes("mission-ethics")) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            document.getElementById("clearBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              clearErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "清除失败：浏览器存储异常，回滚过程中可能仅部分保留原有数据。").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              progressRaw: localStorage.getItem(progressKey),
+              eventsRaw: localStorage.getItem(eventsKey),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.confirm = originalConfirm;
+            Storage.prototype.removeItem = originalRemoveItem;
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Clear rollback failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.clearErrorCount === 1, `Clear rollback failure should record exactly one rollback-failure error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Clear rollback failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.progressRaw === null, `Clear rollback failure should surface the lost progress state after failed rollback: ${JSON.stringify(result)}`);
+        assert((result.eventsRaw || "").includes("\"page_view\""), `Clear rollback failure should preserve the metrics entry that never cleared: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Clear rollback failure should leave exactly one visible failure toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "clearRollbackFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+          const cleared = clearManagedStorage();
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            removed: cleared.removed,
+            eventNames: events.map(event => event.event_name),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length
+          };
+        });
+        assert(result.removed >= 1, `Clear flow did not remove the current metrics snapshot before re-tracking: ${JSON.stringify(result)}`);
+        assert(result.eventNames.join(",") === "page_view,first_interaction,cta_click", `Clear flow did not rebuild pending core events after storage reset: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Clear flow did not preserve the later tracked event after rebuilding state: ${JSON.stringify(result)}`);
+        return { name: "clearResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          clearManagedStorage();
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events
+              .filter(event => event.event_name === "page_view" || event.event_name === "status_success_signal" || (event.event_name === "cta_click" && event.control_id === "probe"))
+              .map(event => event.event_name + (event.control_id ? ":" + event.control_id : ""))
+          };
+        });
+        assert(result.eventNames.join(",") === "page_view,status_success_signal,cta_click:probe", `Clear flow did not restore the active status element signal after storage reset: ${JSON.stringify(result)}`);
+        return { name: "clearStatusResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          clearManagedStorage();
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events
+              .filter(event => event.event_name === "page_view" || event.event_name === "status_success_signal" || (event.event_name === "cta_click" && event.control_id === "probe"))
+              .map(event => event.event_name + (event.control_id ? ":" + event.control_id : ""))
+          };
+        });
+        assert(result.eventNames.join(",") === "page_view,status_success_signal,cta_click:probe", `Clear flow did not restore the active toast status signal after storage reset: ${JSON.stringify(result)}`);
+        return { name: "clearToastResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+          const restored = restoreManagedStorage({
+            [progressKey]: JSON.stringify({
+              "mission-ethics": { _started: true }
+            })
+          });
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            restored,
+            progressRaw: localStorage.getItem(progressKey),
+            eventNames: events.map(event => event.event_name),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length
+          };
+        });
+        assert(result.restored === 1, `Restore flow did not write the imported snapshot: ${JSON.stringify(result)}`);
+        assert((result.progressRaw || "").includes("mission-ethics"), `Restore flow did not preserve the imported progress snapshot: ${JSON.stringify(result)}`);
+        assert(result.eventNames.join(",") === "page_view,first_interaction,cta_click", `Restore flow did not rebuild pending core events after replacing storage: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Restore flow did not preserve the later tracked event after rebuilding state: ${JSON.stringify(result)}`);
+        return { name: "restoreResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          restoreManagedStorage({
+            [progressKey]: JSON.stringify({
+              "mission-ethics": { _started: true }
+            })
+          });
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events
+              .filter(event => event.event_name === "page_view" || event.event_name === "status_success_signal" || (event.event_name === "cta_click" && event.control_id === "probe"))
+              .map(event => event.event_name + (event.control_id ? ":" + event.control_id : ""))
+          };
+        });
+        assert(result.eventNames.join(",") === "page_view,status_success_signal,cta_click:probe", `Restore flow did not restore the active status element signal after replacing storage: ${JSON.stringify(result)}`);
+        return { name: "restoreStatusResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          restoreManagedStorage({
+            [progressKey]: JSON.stringify({
+              "mission-ethics": { _started: true }
+            })
+          });
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events
+              .filter(event => event.event_name === "page_view" || event.event_name === "status_success_signal" || (event.event_name === "cta_click" && event.control_id === "probe"))
+              .map(event => event.event_name + (event.control_id ? ":" + event.control_id : ""))
+          };
+        });
+        assert(result.eventNames.join(",") === "page_view,status_success_signal,cta_click:probe", `Restore flow did not restore the active toast status signal after replacing storage: ${JSON.stringify(result)}`);
+        return { name: "restoreToastResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          restoreManagedStorage({
+            [progressKey]: JSON.stringify({
+              "mission-ethics": { _started: true }
+            })
+          });
+          refreshDashboard();
+          window.clearToasts?.();
+          window.pmMetrics?.reconcileStorageState?.({ resetPendingStatus: true, suppressActiveStatus: true });
+          window.showToast("已导入 1 条学习数据", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            statusTexts: events
+              .filter(event => event.event_name === "status_success_signal")
+              .map(event => event.status_text),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.statusTexts.join("|") === "已导入 1 条学习数据", `Successful import should replace prior visible toasts with its own success signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Successful import toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Successful import should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "importSuccessDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
+          window.confirm = () => true;
+          window.showToast("学习数据已导出", "success", 3000);
+        });
+        await page.waitForFunction(() => document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length === 1);
+        await page.setInputFiles("#importInput", {
+          name: "import.json",
+          mimeType: "application/json",
+          buffer: Buffer.from(JSON.stringify({
+            p00_mission_progress: JSON.stringify({
+              "mission-ethics": { _started: true }
+            })
+          }))
+        });
+        await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("已导入 1 条学习数据"));
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.statusTexts.join("|") === "已导入 1 条学习数据", `Import input handler should replace prior visible toasts with its own success signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Import input handler should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Import input handler should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "importInputDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
+          window.confirm = () => false;
+          window.showToast("学习数据已导出", "success", 3000);
+        });
+        await page.waitForFunction(() => document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length === 1);
+        await page.setInputFiles("#importInput", {
+          name: "cancelled-import.json",
+          mimeType: "application/json",
+          buffer: Buffer.from(JSON.stringify({
+            p00_mission_progress: JSON.stringify({
+              "mission-ethics": { _started: true }
+            })
+          }))
+        });
+        await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("已取消导入"));
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+            cancelSignalCount: events.filter(event =>
+              (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+              && event.status_text === "已取消导入"
+            ).length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            progressRaw: localStorage.getItem("p00_mission_progress"),
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.priorToastCount === 1, `Cancelled import should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.cancelSignalCount === 0, `Cancelled import info toast should remain untracked: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Cancelled import toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.progressRaw === null, `Cancelled import should not modify stored progress: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Cancelled import should leave exactly one visible info toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "importCancelDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
+          window.showToast("学习数据已导出", "success", 3000);
+        });
+        await page.waitForFunction(() => document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length === 1);
+        await page.setInputFiles("#importInput", {
+          name: "broken-import.json",
+          mimeType: "application/json",
+          buffer: Buffer.from("{not-json")
+        });
+        await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("导入失败：文件不是有效的 JSON"));
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+            importErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "导入失败：文件不是有效的 JSON").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.priorToastCount === 1, `Invalid import should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.importErrorCount === 1, `Invalid import should record exactly one error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Invalid import toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Invalid import should leave exactly one visible error toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "importInvalidJsonDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
+          window.showToast("学习数据已导出", "success", 3000);
+        });
+        await page.waitForFunction(() => document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length === 1);
+        await page.evaluate(() => {
+          window.__pmOriginalReplaceToasts = window.replaceToasts;
+          window.replaceToasts = undefined;
+        });
+        try {
+          await page.setInputFiles("#importInput", {
+            name: "broken-import.json",
+            mimeType: "application/json",
+            buffer: Buffer.from("{not-json")
+          });
+          await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("导入失败：文件不是有效的 JSON"));
+          const result = await page.evaluate(() => {
+            const eventsKey = "pm_metrics_events_P00-dashboard";
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              importErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "导入失败：文件不是有效的 JSON").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          });
+          assert(result.priorToastCount === 1, `Invalid import fallback should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+          assert(result.importErrorCount === 1, `Invalid import fallback should record exactly one error signal: ${JSON.stringify(result)}`);
+          assert(result.ctaClickCount === 1, `Invalid import fallback toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+          assert(result.visibleToastCount === 1, `Invalid import fallback should leave exactly one visible error toast after clearing stale toasts: ${JSON.stringify(result)}`);
+          return { name: "importInvalidJsonFallbackWithoutReplaceToastsCase", status: "passed" };
+        } finally {
+          await page.evaluate(() => {
+            window.replaceToasts = window.__pmOriginalReplaceToasts;
+            delete window.__pmOriginalReplaceToasts;
+          });
+        }
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
+          window.showToast("学习数据已导出", "success", 3000);
+        });
+        await page.waitForFunction(() => document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length === 1);
+        await page.setInputFiles("#importInput", {
+          name: "empty-import.json",
+          mimeType: "application/json",
+          buffer: Buffer.from(JSON.stringify({ unrelated_key: true }))
+        });
+        await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("导入失败：未找到可恢复的学习数据"));
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+            importErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "导入失败：未找到可恢复的学习数据").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.priorToastCount === 1, `Empty import should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.importErrorCount === 1, `Empty import should record exactly one warning/error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Empty import toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Empty import should leave exactly one visible warning toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "importEmptyDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, "{not-json");
+          window.confirm = () => true;
+          window.showToast("学习数据已导出", "success", 3000);
+        });
+        await page.waitForFunction(() => document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length === 1);
+        await page.setInputFiles("#importInput", {
+          name: "snapshot-failed-import.json",
+          mimeType: "application/json",
+          buffer: Buffer.from(JSON.stringify({
+            p00_mission_progress: JSON.stringify({
+              "mission-ai-content": { _started: true }
+            })
+          }))
+        });
+        await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("导入失败：当前浏览器存储存在不可读数据，无法安全覆盖，请先清理后重试"));
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+            importErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "导入失败：当前浏览器存储存在不可读数据，无法安全覆盖，请先清理后重试").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            progressRaw: localStorage.getItem("p00_mission_progress"),
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.priorToastCount === 1, `Import snapshot failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.importErrorCount === 1, `Import snapshot failure should record exactly one snapshot error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Import snapshot failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.progressRaw === "{not-json", `Import snapshot failure should preserve the original unreadable progress state: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Import snapshot failure should leave exactly one visible error toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "importSnapshotFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          window.confirm = () => true;
+          window.showToast("学习数据已导出", "success", 3000);
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === progressKey && String(value).includes("mission-ai-content")) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+        });
+        await page.waitForFunction(() => document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length === 1);
+        await page.setInputFiles("#importInput", {
+          name: "restore-write-fail-import.json",
+          mimeType: "application/json",
+          buffer: Buffer.from(JSON.stringify({
+            p00_mission_progress: JSON.stringify({
+              "mission-ai-content": { _started: true }
+            })
+          }))
+        });
+        await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("导入失败：浏览器存储写入失败，已保留原有数据"));
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+            importErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "导入失败：浏览器存储写入失败，已保留原有数据").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            progressRaw: localStorage.getItem("p00_mission_progress"),
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.priorToastCount === 1, `Import write failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.importErrorCount === 1, `Import write failure should record exactly one restore error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Import write failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert((result.progressRaw || "").includes("mission-ethics"), `Import write failure should preserve the original progress snapshot after rollback: ${JSON.stringify(result)}`);
+        assert(!(result.progressRaw || "").includes("mission-ai-content"), `Import write failure should not leave partially imported progress behind: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Import write failure should leave exactly one visible error toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "importWriteFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(progressKey, JSON.stringify({
+            "mission-ethics": { _started: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "import-rollback",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.confirm = () => true;
+          window.showToast("学习数据已导出", "success", 3000);
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === eventsKey) {
+              return;
+            }
+            return originalRemoveItem.call(this, key);
+          };
+          Storage.prototype.setItem = function (key, value) {
+            if (key === progressKey && String(value).includes("mission-ethics")) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+        });
+        await page.waitForFunction(() => document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length === 1);
+        await page.setInputFiles("#importInput", {
+          name: "rollback-failed-import.json",
+          mimeType: "application/json",
+          buffer: Buffer.from(JSON.stringify({
+            p00_mission_progress: JSON.stringify({
+              "mission-ai-content": { _started: true }
+            })
+          }))
+        });
+        await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("导入失败：浏览器存储异常，恢复过程中可能仅部分保留原有数据"));
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+            importErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "导入失败：浏览器存储异常，恢复过程中可能仅部分保留原有数据").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            progressRaw: localStorage.getItem("p00_mission_progress"),
+            eventsRaw: localStorage.getItem(eventsKey),
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.priorToastCount === 1, `Import rollback failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.importErrorCount === 1, `Import rollback failure should record exactly one rollback error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Import rollback failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.progressRaw === null, `Import rollback failure should expose partial rollback by leaving the original progress unrestored: ${JSON.stringify(result)}`);
+        assert((result.eventsRaw || "").includes("\"page_view\""), `Import rollback failure should preserve the metric snapshot entry that never cleared: ${JSON.stringify(result)}`);
+        assert(!(result.progressRaw || "").includes("mission-ai-content"), `Import rollback failure should not leave imported progress behind: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Import rollback failure should leave exactly one visible error toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "importRollbackFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "bogus_event",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "broken",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          refreshDashboard();
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events.map(event => event.event_name),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length
+          };
+        });
+        assert(result.eventNames.join(",") === "page_view,cta_click", `Dashboard repair did not resync pending core metrics after rewriting invalid storage: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Dashboard repair did not preserve the later tracked event after storage rewrite: ${JSON.stringify(result)}`);
+        return { name: "repairResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "bogus_event",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "broken",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          refreshDashboard();
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events
+              .filter(event => event.event_name === "page_view" || event.event_name === "status_success_signal" || (event.event_name === "cta_click" && event.control_id === "probe"))
+              .map(event => event.event_name + (event.control_id ? ":" + event.control_id : ""))
+          };
+        });
+        assert(result.eventNames.join(",") === "page_view,status_success_signal,cta_click:probe", `Dashboard repair did not restore the active status signal after rewriting invalid storage: ${JSON.stringify(result)}`);
+        return { name: "repairStatusResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "bogus_event",
+            event_time: new Date().toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "broken",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          refreshDashboard();
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events
+              .filter(event => event.event_name === "page_view" || event.event_name === "status_success_signal" || (event.event_name === "cta_click" && event.control_id === "probe"))
+              .map(event => event.event_name + (event.control_id ? ":" + event.control_id : ""))
+          };
+        });
+        assert(result.eventNames.join(",") === "page_view,status_success_signal,cta_click:probe", `Dashboard repair did not restore the active toast status signal after rewriting invalid storage: ${JSON.stringify(result)}`);
+        return { name: "repairToastStatusResyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const taskName = "dashboard_mission_mission_ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === taskKey) throw new Error("forced marker failure");
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.ensureMissionStarted(missionId);
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+
+          window.pmMetrics.markTaskComplete(taskName, { mission_id: missionId });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          const taskComplete = [...events].reverse().find(event => event.event_name === "task_complete" && event.task_name === taskName);
+          return {
+            taskCompleteDuration: taskComplete ? taskComplete.task_duration_ms : null,
+            taskStartCount: events.filter(event => event.event_name === "task_start" && event.task_name === taskName).length
+          };
+        });
+        assert(result.taskStartCount === 1, `Duration fallback case expected one task_start event, got ${result.taskStartCount}`);
+        assert(Number.isFinite(result.taskCompleteDuration), `Duration fallback did not recover task duration: ${result.taskCompleteDuration}`);
+        return { name: "taskDurationFallbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(eventsKey, JSON.stringify([
+            {
+              event_name: "task_start",
+              task_name: taskName,
+              event_time: new Date(Date.now() - 5000).toISOString(),
+              project_id: "P00-dashboard",
+              project_cluster: "学习中枢",
+              session_id: "later-start",
+              app_version: "pm-v1",
+              page_path: "/"
+            },
+            {
+              event_name: "task_complete",
+              task_name: taskName,
+              event_time: new Date(Date.now() - 10000).toISOString(),
+              project_id: "P00-dashboard",
+              project_cluster: "学习中枢",
+              session_id: "earlier-complete",
+              app_version: "pm-v1",
+              page_path: "/"
+            }
+          ]));
+          window.pmMetrics.markTaskComplete(taskName, { mission_id: "mission-ethics" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          const taskComplete = [...events].reverse().find(event => event.event_name === "task_complete" && event.mission_id === "mission-ethics");
+          return {
+            taskCompleteDuration: taskComplete ? taskComplete.task_duration_ms : null,
+            taskCompleteCount: events.filter(event => event.event_name === "task_complete" && event.task_name === taskName).length
+          };
+        });
+        assert(result.taskCompleteCount >= 2, `Out-of-order duration case expected a new task_complete event, got ${result.taskCompleteCount}`);
+        assert(Number.isFinite(result.taskCompleteDuration), `Out-of-order duration fallback did not recover task duration: ${result.taskCompleteDuration}`);
+        return { name: "outOfOrderTaskDurationCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "dashboard_mission_mission_ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const now = Date.now();
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(now - 60000));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_complete",
+            task_name: taskName,
+            event_time: new Date(now - 1000).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "stale-terminal",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+
+          window.refreshDashboard();
+          const markerAfterRepair = localStorage.getItem(taskKey);
+          window.pmMetrics.markTaskComplete(taskName, { mission_id: "mission-ethics" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          const latest = [...events].reverse().find(event => event.event_name === "task_complete" && event.mission_id === "mission-ethics");
+          return {
+            markerAfterRepair,
+            taskCompleteDuration: latest ? latest.task_duration_ms : null
+          };
+        });
+        assert(result.markerAfterRepair === null, `Stale task-start marker was not pruned: ${result.markerAfterRepair}`);
+        assert(result.taskCompleteDuration === null, `Stale task-start marker still affected duration: ${result.taskCompleteDuration}`);
+        return { name: "staleMarkerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "dashboard_mission_mission_ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const terminalTime = Date.now() - 1000;
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(terminalTime));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_complete",
+            task_name: taskName,
+            event_time: new Date(terminalTime).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "equal-terminal",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.refreshDashboard();
+          const markerAfterRepair = localStorage.getItem(taskKey);
+          window.pmMetrics.markTaskComplete(taskName, { mission_id: "mission-ethics" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          const latest = [...events].reverse().find(event => event.event_name === "task_complete" && event.mission_id === "mission-ethics");
+          return {
+            markerAfterRepair,
+            taskCompleteDuration: latest ? latest.task_duration_ms : null
+          };
+        });
+        assert(result.markerAfterRepair === null, `Equal-time task-start marker was not pruned: ${result.markerAfterRepair}`);
+        assert(result.taskCompleteDuration === null, `Equal-time task-start marker still affected duration: ${result.taskCompleteDuration}`);
+        return { name: "equalTimeMarkerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "dashboard_mission_mission_ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(Date.now() - (9 * 60 * 60 * 1000)));
+          window.pmMetrics.markTaskComplete(taskName, { mission_id: "mission-ethics" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          const latest = [...events].reverse().find(event => event.event_name === "task_complete" && event.mission_id === "mission-ethics");
+          return {
+            taskCompleteDuration: latest ? latest.task_duration_ms : null
+          };
+        });
+        assert(result.taskCompleteDuration === null, `Stale task-start marker without terminal event still affected duration: ${result.taskCompleteDuration}`);
+        return { name: "staleActiveMarkerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const eventsKey = "pm_metrics_events_P01-model-compare";
+          const now = Date.now();
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(now - 60000));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_complete",
+            task_name: "tool_probe_task",
+            event_time: new Date(now - 1000).toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "tool-terminal",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.refreshDashboard();
+          return {
+            markerAfterRepair: localStorage.getItem(taskKey),
+            toolEventsCount: JSON.parse(localStorage.getItem(eventsKey) || "[]").length
+          };
+        });
+        assert(result.markerAfterRepair === null, `Tool-project stale marker was not pruned: ${result.markerAfterRepair}`);
+        assert(result.toolEventsCount === 1, `Tool-project metrics were unexpectedly modified: ${result.toolEventsCount}`);
+        return { name: "toolProjectStaleMarkerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskKey = "pm_metrics_task_start_P01::tool_probe_task";
+          const eventsKey = "pm_metrics_events_P01-model-compare";
+          const now = Date.now();
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(now - 60000));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_complete",
+            task_name: "tool_probe_task",
+            event_time: new Date(now - 1000).toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "alias-terminal",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.refreshDashboard();
+          return {
+            markerAfterRepair: localStorage.getItem(taskKey)
+          };
+        });
+        assert(result.markerAfterRepair === null, `Legacy plain task-start key was not reconciled against canonical metrics key: ${result.markerAfterRepair}`);
+        return { name: "legacyTaskKeyAliasCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_task_start_P01::tool_probe_task";
+          const canonicalKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const timestamp = Date.now() - 2000;
+          localStorage.clear();
+          localStorage.setItem(plainKey, String(timestamp));
+          window.refreshDashboard();
+          return {
+            plainAfterRepair: localStorage.getItem(plainKey),
+            canonicalAfterRepair: localStorage.getItem(canonicalKey)
+          };
+        });
+        assert(result.plainAfterRepair === null, `Legacy plain task-start key was not migrated away: ${result.plainAfterRepair}`);
+        assert(result.canonicalAfterRepair !== null, "Canonical task-start key was not created from legacy plain key");
+        return { name: "legacyTaskKeyMigrationCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_task_start_P01::tool_probe_task";
+          const canonicalKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const timestamp = Date.now() - 2000;
+          localStorage.clear();
+          localStorage.setItem(plainKey, String(timestamp));
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === plainKey) return;
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            return {
+              plainAfterRepair: localStorage.getItem(plainKey),
+              canonicalAfterRepair: localStorage.getItem(canonicalKey)
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.plainAfterRepair === "NaN", `Silent legacy task-key remove did not neutralize the plain key: ${JSON.stringify(result)}`);
+        assert(result.canonicalAfterRepair !== null, "Canonical task-start key was not created while neutralizing a silent plain-key remove");
+        return { name: "legacyTaskKeySilentRemoveCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_task_start_P01::tool_probe_task";
+          const canonicalKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const timestamp = Date.now() - 2000;
+          localStorage.clear();
+          localStorage.setItem(plainKey, String(timestamp));
+          localStorage.setItem(canonicalKey, String(timestamp));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === canonicalKey) {
+              throw new Error("forced canonical task key read failure");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            return {
+              plainAfterRepair: localStorage.getItem(plainKey)
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.plainAfterRepair !== null, "Readable legacy plain task-start key was lost when canonical alias was unreadable");
+        return { name: "legacyTaskKeyUnreadableCanonicalCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_task_start_P01::tool_probe_task";
+          const canonicalKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const timestamp = Date.now() - 2000;
+          localStorage.clear();
+          localStorage.setItem(plainKey, String(timestamp));
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === canonicalKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.refreshDashboard();
+            return {
+              plainAfterRepair: localStorage.getItem(plainKey),
+              canonicalAfterRepair: localStorage.getItem(canonicalKey)
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.plainAfterRepair !== null, "Legacy plain task-start key was lost after silent canonical migration no-op");
+        assert(result.canonicalAfterRepair === null, `Canonical task-start key should not exist after silent migration no-op: ${result.canonicalAfterRepair}`);
+        return { name: "legacyTaskKeyMigrationSilentWriteFailCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_task_start_P01::tool_probe_task";
+          const canonicalKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const freshTimestamp = Date.now() - 2000;
+          localStorage.clear();
+          localStorage.setItem(plainKey, String(freshTimestamp));
+          localStorage.setItem(canonicalKey, String(Date.now() + (24 * 60 * 60 * 1000)));
+          window.refreshDashboard();
+          return {
+            plainAfterRepair: localStorage.getItem(plainKey),
+            canonicalAfterRepair: localStorage.getItem(canonicalKey)
+          };
+        });
+        assert(result.plainAfterRepair === null, `Legacy plain task-start key was not removed after mixed-validity migration: ${result.plainAfterRepair}`);
+        assert(result.canonicalAfterRepair !== null, "Canonical task-start key was lost during mixed-validity migration");
+        return { name: "legacyTaskKeyMixedValidityCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const sharedEvent = {
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "migrated-event",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([sharedEvent]));
+          localStorage.setItem(canonicalKey, JSON.stringify([sharedEvent]));
+          window.refreshDashboard();
+          const canonicalEvents = JSON.parse(localStorage.getItem(canonicalKey) || "[]");
+          return {
+            plainAfterRepair: localStorage.getItem(plainKey),
+            canonicalCount: canonicalEvents.length,
+            canonicalSessionIds: canonicalEvents.map(event => event.session_id),
+            backupKeys: Object.keys(window.buildExportPayload().data || {})
+          };
+        });
+        assert(result.plainAfterRepair === null, `Legacy plain metrics key was not migrated away: ${result.plainAfterRepair}`);
+        assert(result.canonicalCount === 1, `Canonical metrics key did not dedupe merged legacy events: ${result.canonicalCount}`);
+        assert(result.canonicalSessionIds[0] === "migrated-event", `Canonical metrics key kept unexpected merged data: ${JSON.stringify(result.canonicalSessionIds)}`);
+        assert(!result.backupKeys.includes("pm_metrics_events_P01"), `Legacy plain metrics key leaked into export after migration: ${JSON.stringify(result.backupKeys)}`);
+        assert(result.backupKeys.includes("pm_metrics_events_P01-model-compare"), `Canonical metrics key missing after migration: ${JSON.stringify(result.backupKeys)}`);
+        return { name: "legacyMetricKeyMigrationCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const sharedTime = new Date().toISOString();
+          const plainEvent = {
+            event_name: "page_view",
+            event_time: sharedTime,
+            project_id: "P01",
+            project_cluster: "probe",
+            session_id: "legacy-project-id",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          const canonicalEvent = {
+            event_name: "page_view",
+            event_time: sharedTime,
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "legacy-project-id",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([plainEvent]));
+          localStorage.setItem(canonicalKey, JSON.stringify([canonicalEvent]));
+          window.refreshDashboard();
+          const canonicalEvents = JSON.parse(localStorage.getItem(canonicalKey) || "[]");
+          return {
+            plainAfterRepair: localStorage.getItem(plainKey),
+            canonicalCount: canonicalEvents.length,
+            canonicalProjectIds: canonicalEvents.map(event => event.project_id)
+          };
+        });
+        assert(result.plainAfterRepair === null, `Legacy plain metrics key with legacy project_id was not migrated away: ${result.plainAfterRepair}`);
+        assert(result.canonicalCount === 1, `Legacy/canonical event merge did not dedupe on canonicalized project_id: ${result.canonicalCount}`);
+        assert(result.canonicalProjectIds.length === 1 && result.canonicalProjectIds[0] === "P01-model-compare", `Canonicalized event retained wrong project_id: ${JSON.stringify(result.canonicalProjectIds)}`);
+        return { name: "legacyMetricProjectIdNormalizationCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const plainEvent = {
+            event_name: "page_view",
+            event_time: new Date(Date.now() - 2000).toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "plain-export",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          const canonicalEvent = {
+            event_name: "cta_click",
+            event_time: new Date(Date.now() - 1000).toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "canonical-export",
+            app_version: "pm-v1",
+            page_path: "/",
+            control_id: "probe"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([plainEvent]));
+          localStorage.setItem(canonicalKey, JSON.stringify([canonicalEvent]));
+          const payload = window.buildExportPayload();
+          const normalized = window.normalizeImportedSnapshot({
+            [plainKey]: JSON.stringify([plainEvent]),
+            [canonicalKey]: JSON.stringify([canonicalEvent])
+          });
+          return {
+            exportKeys: Object.keys(payload.data || {}),
+            exportedEvents: JSON.parse(payload.data[canonicalKey] || "[]").map(event => event.session_id),
+            normalizedKeys: Object.keys(normalized),
+            normalizedEvents: JSON.parse(normalized[canonicalKey] || "[]").map(event => event.session_id)
+          };
+        });
+        assert(!result.exportKeys.includes("pm_metrics_events_P01"), `Export payload still included legacy plain metrics key: ${JSON.stringify(result.exportKeys)}`);
+        assert(result.exportKeys.includes("pm_metrics_events_P01-model-compare"), `Export payload missing canonical metrics key: ${JSON.stringify(result.exportKeys)}`);
+        assert(result.exportedEvents.join(",") === "plain-export,canonical-export", `Export payload did not merge legacy/canonical metrics correctly: ${JSON.stringify(result.exportedEvents)}`);
+        assert(!result.normalizedKeys.includes("pm_metrics_events_P01"), `Import normalization still included legacy plain metrics key: ${JSON.stringify(result.normalizedKeys)}`);
+        assert(result.normalizedKeys.includes("pm_metrics_events_P01-model-compare"), `Import normalization missing canonical metrics key: ${JSON.stringify(result.normalizedKeys)}`);
+        assert(result.normalizedEvents.join(",") === "plain-export,canonical-export", `Import normalization did not merge legacy/canonical metrics correctly: ${JSON.stringify(result.normalizedEvents)}`);
+        return { name: "legacyMetricExportImportCanonicalCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const exportKey = "pm_metrics_events_P01-model-compare";
+          const timestamp = Date.now() - 2000;
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(timestamp));
+          const payload = window.buildExportPayload();
+          const events = JSON.parse(payload.data[exportKey] || "[]");
+          return {
+            exportKeys: Object.keys(payload.data || {}),
+            eventNames: events.map(event => event.event_name),
+            taskNames: events.map(event => event.task_name)
+          };
+        });
+        assert(result.exportKeys.includes("pm_metrics_events_P01-model-compare"), `Export payload missing canonical metrics key for marker-only task start: ${JSON.stringify(result.exportKeys)}`);
+        assert(result.eventNames.join(",") === "task_start", `Export payload did not synthesize task_start from marker-only state: ${JSON.stringify(result)}`);
+        assert(result.taskNames.join(",") === "tool_probe_task", `Export payload synthesized task_start for the wrong task: ${JSON.stringify(result)}`);
+        return { name: "taskStartExportBackfillCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_task_start_P01::tool_probe_task";
+          const canonicalKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const olderTimestamp = Date.now() - 4000;
+          const newerTimestamp = Date.now() - 2000;
+          const exportKey = "pm_metrics_events_P01-model-compare";
+          localStorage.clear();
+          localStorage.setItem(plainKey, String(olderTimestamp));
+          localStorage.setItem(canonicalKey, String(newerTimestamp));
+          const payload = window.buildExportPayload();
+          const events = JSON.parse(payload.data[exportKey] || "[]");
+          return {
+            eventNames: events.map(event => event.event_name),
+            eventTimes: events.map(event => event.event_time),
+            newerEventTime: new Date(newerTimestamp).toISOString()
+          };
+        });
+        assert(result.eventNames.join(",") === "task_start", `Export payload did not synthesize exactly one task_start across alias markers: ${JSON.stringify(result)}`);
+        assert(result.eventTimes[0] === result.newerEventTime, `Export payload did not choose the freshest alias marker timestamp: ${JSON.stringify(result)}`);
+        return { name: "taskStartExportLatestMarkerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          const exportKey = "pm_metrics_events_P01-model-compare";
+          const markerTime = Date.now() - (60 * 60 * 1000);
+          const base = Date.now() - (30 * 60 * 1000);
+          const filler = Array.from({ length: 500 }, (_, index) => ({
+            event_name: "cta_click",
+            event_time: new Date(base + (index * 1000)).toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: `fill-${index}`,
+            app_version: "pm-v1",
+            page_path: "/",
+            control_id: `b${index}`
+          }));
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(markerTime));
+          localStorage.setItem(exportKey, JSON.stringify(filler));
+          const payload = window.buildExportPayload();
+          const events = JSON.parse(payload.data[exportKey] || "[]");
+          return {
+            count: events.length,
+            taskEvents: events.filter(event => event.task_name === "tool_probe_task").map(event => event.event_name)
+          };
+        });
+        assert(result.count === 500, `Export retention changed total retained metric count unexpectedly: ${result.count}`);
+        assert(result.taskEvents.join(",") === "task_start", `Export retention trimmed away synthesized task_start under 500-event cap: ${JSON.stringify(result)}`);
+        return { name: "taskStartExportRetentionCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const event = {
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "readable-canonical",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([event]));
+          localStorage.setItem(canonicalKey, JSON.stringify([event]));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === plainKey) {
+              throw new Error("forced plain alias read failure");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const status = window.getBackupStorageSnapshotStatus();
+            return {
+              unreadable: status.unreadable,
+              readable: status.readable,
+              exportKeys: Object.keys(window.buildExportPayload().data || {})
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.readable === true && result.unreadable === 0, `Backup status still counted unreadable alias despite canonical readable data: ${JSON.stringify(result)}`);
+        assert(result.exportKeys.includes("pm_metrics_events_P01-model-compare"), `Canonical export payload missing under unreadable alias condition: ${JSON.stringify(result.exportKeys)}`);
+        return { name: "legacyMetricUnreadableAliasCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const event = {
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "readable-canonical-repair",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([event]));
+          localStorage.setItem(canonicalKey, JSON.stringify([event]));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === plainKey) {
+              throw new Error("forced plain alias read failure");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+            return {
+              plainExistsAfterRepair: keys.includes(plainKey)
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.plainExistsAfterRepair === true, "Unreadable legacy alias key was removed during startup repair");
+        return { name: "legacyMetricUnreadableAliasRepairCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const event = {
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "readable-alias-only",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([event]));
+          localStorage.setItem(canonicalKey, JSON.stringify([event]));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === canonicalKey) {
+              throw new Error("forced canonical key read failure");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const status = window.getBackupStorageSnapshotStatus();
+            return {
+              unreadable: status.unreadable,
+              readable: status.readable
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.readable === true && result.unreadable === 1, `Backup status did not treat unreadable canonical key as fatal: ${JSON.stringify(result)}`);
+        return { name: "legacyMetricUnreadableCanonicalCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const event = {
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "readable-legacy-under-unreadable-canonical",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([event]));
+          localStorage.setItem(canonicalKey, JSON.stringify([event]));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === canonicalKey) {
+              throw new Error("forced canonical metrics key read failure");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            return {
+              plainAfterRepair: localStorage.getItem(plainKey)
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.plainAfterRepair !== null, "Readable legacy plain metrics key was lost when canonical alias was unreadable");
+        return { name: "legacyMetricUnreadableCanonicalRepairCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const sharedEvent = {
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "migration-write-fail",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([sharedEvent]));
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === canonicalKey) {
+              throw new Error("forced canonical migration failure");
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.refreshDashboard();
+            return {
+              plainAfterRepair: localStorage.getItem(plainKey),
+              canonicalAfterRepair: localStorage.getItem(canonicalKey)
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.plainAfterRepair !== null, "Legacy plain metrics key was lost after canonical migration write failure");
+        assert(result.canonicalAfterRepair === null, `Canonical metrics key should not exist after forced migration write failure: ${result.canonicalAfterRepair}`);
+        return { name: "legacyMetricMigrationWriteFailCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const sharedEvent = {
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "silent-canonical-migration-failure",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([sharedEvent]));
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === canonicalKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.refreshDashboard();
+            return {
+              plainAfterRepair: localStorage.getItem(plainKey),
+              canonicalAfterRepair: localStorage.getItem(canonicalKey)
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.plainAfterRepair !== null, "Legacy plain metrics key was lost after silent canonical migration no-op");
+        assert(result.canonicalAfterRepair === null, `Canonical metrics key should not exist after silent migration no-op: ${result.canonicalAfterRepair}`);
+        return { name: "legacyMetricMigrationSilentWriteFailCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const plainKey = "pm_metrics_events_P01";
+          const canonicalKey = "pm_metrics_events_P01-model-compare";
+          const sharedEvent = {
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "dedupe-under-write-failure",
+            app_version: "pm-v1",
+            page_path: "/"
+          };
+          localStorage.clear();
+          localStorage.setItem(plainKey, JSON.stringify([sharedEvent]));
+          localStorage.setItem(canonicalKey, JSON.stringify([sharedEvent]));
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === canonicalKey) {
+              throw new Error("forced canonical migration failure");
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.refreshDashboard();
+            return {
+              totalEvents: document.getElementById("sTotalEvents")?.textContent || "",
+              toolsUsed: document.getElementById("sToolsUsed")?.textContent || ""
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.totalEvents === "1", `Grouped metrics entries still double-counted duplicate legacy/canonical events: ${result.totalEvents}`);
+        assert(result.toolsUsed === "1/50", `Grouped metrics entries changed tool-used counting unexpectedly: ${result.toolsUsed}`);
+        return { name: "legacyMetricStatsDedupeCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const unknownTaskKey = "pm_metrics_task_start_P99::bogus_task";
+          const malformedTaskKey = "pm_metrics_task_start_P01";
+          localStorage.clear();
+          localStorage.setItem(unknownTaskKey, String(Date.now()));
+          localStorage.setItem(malformedTaskKey, String(Date.now()));
+          window.refreshDashboard();
+          return {
+            unknownAfterRepair: localStorage.getItem(unknownTaskKey),
+            malformedAfterRepair: localStorage.getItem(malformedTaskKey)
+          };
+        });
+        assert(result.unknownAfterRepair === null, `Unknown-project task-start key was not pruned: ${result.unknownAfterRepair}`);
+        assert(result.malformedAfterRepair === null, `Malformed task-start key was not pruned: ${result.malformedAfterRepair}`);
+        return { name: "invalidTaskKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const junkKey = "pm_metrics_task_start_P01-not-real::tool_probe_task";
+          const canonicalKey = "pm_metrics_task_start_P01-model-compare::tool_probe_task";
+          localStorage.clear();
+          localStorage.setItem(junkKey, String(Date.now() - 2000));
+          window.refreshDashboard();
+          return {
+            junkAfterRepair: localStorage.getItem(junkKey),
+            canonicalAfterRepair: localStorage.getItem(canonicalKey)
+          };
+        });
+        assert(result.junkAfterRepair === null, `Suffixed junk task-start key was not pruned: ${result.junkAfterRepair}`);
+        assert(result.canonicalAfterRepair === null, `Suffixed junk task-start key incorrectly migrated into canonical key: ${result.canonicalAfterRepair}`);
+        return { name: "suffixedJunkTaskKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const junkKey = "pm_metrics_events_P01junk";
+          localStorage.clear();
+          localStorage.setItem(junkKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01",
+            project_cluster: "probe",
+            session_id: "junk",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.refreshDashboard();
+          return {
+            junkAfterRepair: localStorage.getItem(junkKey),
+            statTools: document.getElementById("statTools")?.textContent || "",
+            backupKeys: Object.keys(window.buildExportPayload().data || {})
+          };
+        });
+        assert(result.junkAfterRepair === null, `Prefixed junk metric key was not pruned: ${result.junkAfterRepair}`);
+        assert(result.statTools === "0", `Prefixed junk metric key still affected used-tool stats: ${result.statTools}`);
+        assert(!result.backupKeys.includes("pm_metrics_events_P01junk"), `Prefixed junk metric key leaked into export payload: ${JSON.stringify(result.backupKeys)}`);
+        return { name: "junkMetricKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const junkKey = "pm_metrics_events_P01junk";
+          localStorage.clear();
+          localStorage.setItem(junkKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01",
+            project_cluster: "probe",
+            session_id: "junk-silent-remove",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === junkKey) return;
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            return {
+              junkAfterRepair: localStorage.getItem(junkKey),
+              statTools: document.getElementById("statTools")?.textContent || "",
+              backupKeys: Object.keys(window.buildExportPayload().data || {})
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.junkAfterRepair === "[]", `Silent junk-metric remove did not neutralize the key: ${JSON.stringify(result)}`);
+        assert(result.statTools === "0", `Neutralized junk metric key still affected used-tool stats: ${result.statTools}`);
+        assert(!result.backupKeys.includes("pm_metrics_events_P01junk"), `Neutralized junk metric key leaked into export payload: ${JSON.stringify(result.backupKeys)}`);
+        return { name: "junkMetricKeySilentRemoveCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const junkKey = "pm_metrics_events_P01-not-real";
+          localStorage.clear();
+          localStorage.setItem(junkKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-not-real",
+            project_cluster: "probe",
+            session_id: "junk-suffixed",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.refreshDashboard();
+          return {
+            junkAfterRepair: localStorage.getItem(junkKey),
+            statTools: document.getElementById("statTools")?.textContent || "",
+            backupKeys: Object.keys(window.buildExportPayload().data || {})
+          };
+        });
+        assert(result.junkAfterRepair === null, `Suffixed junk metric key was not pruned: ${result.junkAfterRepair}`);
+        assert(result.statTools === "0", `Suffixed junk metric key still affected used-tool stats: ${result.statTools}`);
+        assert(!result.backupKeys.includes("pm_metrics_events_P01-not-real"), `Suffixed junk metric key leaked into export payload: ${JSON.stringify(result.backupKeys)}`);
+        return { name: "suffixedJunkMetricKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const validKey = "pm_metrics_events_P01-model-compare";
+          localStorage.clear();
+          localStorage.setItem(validKey, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P01-model-compare",
+            project_cluster: "probe",
+            session_id: "valid-suffixed-project",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.refreshDashboard();
+          return {
+            valueAfterRepair: localStorage.getItem(validKey),
+            statTools: document.getElementById("statTools")?.textContent || "",
+            backupKeys: Object.keys(window.buildExportPayload().data || {})
+          };
+        });
+        assert(result.valueAfterRepair !== null, "Valid suffixed metric key was incorrectly pruned");
+        assert(result.statTools === "1", `Valid suffixed metric key did not count toward used-tool stats: ${result.statTools}`);
+        assert(result.backupKeys.includes("pm_metrics_events_P01-model-compare"), `Valid suffixed metric key was omitted from export payload: ${JSON.stringify(result.backupKeys)}`);
+        return { name: "suffixedMetricKeyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const newer = new Date(Date.now() - 1000).toISOString();
+          const older = new Date(Date.now() - 10000).toISOString();
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([
+            {
+              event_name: "task_start",
+              task_name: "dashboard_mission_mission_ethics",
+              event_time: newer,
+              project_id: "P00-dashboard",
+              project_cluster: "学习中枢",
+              session_id: "newer-start",
+              app_version: "pm-v1",
+              page_path: "/"
+            },
+            {
+              event_name: "task_start",
+              task_name: "dashboard_mission_mission_ethics",
+              event_time: older,
+              project_id: "P00-dashboard",
+              project_cluster: "学习中枢",
+              session_id: "older-start",
+              app_version: "pm-v1",
+              page_path: "/"
+            }
+          ]));
+          const token = JSON.parse(window.getMissionStartSyncToken(missionId));
+          return {
+            startEventTime: token.startEventTime,
+            newer,
+            older
+          };
+        });
+        assert(result.startEventTime === result.newer, `Mission start token did not use newest task_start time: ${JSON.stringify(result)}`);
+        return { name: "missionStartTokenCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          localStorage.clear();
+          const absent = window.getMissionTaskStartTimestamp(missionId);
+
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) {
+              throw new Error("forced unreadable mission marker");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            return {
+              absent,
+              unreadable: window.getMissionTaskStartTimestamp(missionId)
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.absent === null, `Missing mission marker should resolve to null timestamp: ${JSON.stringify(result)}`);
+        assert(result.unreadable === null, `Unreadable mission marker should resolve to null timestamp: ${JSON.stringify(result)}`);
+        return { name: "missionMarkerTimestampNullCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.ensureMissionStarted(missionId);
+          window.openMissionModal(missionId);
+          document.getElementById("modalResetBtn").click();
+          const progress = JSON.parse(localStorage.getItem("p00_mission_progress") || "{}");
+          const taskEvents = JSON.parse(localStorage.getItem(eventsKey) || "[]")
+            .filter(event => event.task_name === "dashboard_mission_mission_ethics")
+            .map(event => event.event_name);
+          return {
+            markerAfter: localStorage.getItem(taskKey),
+            progressKeys: Object.keys(progress),
+            taskEvents
+          };
+        });
+        assert(result.markerAfter === null, `Mission reset did not clear the open task-start marker: ${JSON.stringify(result)}`);
+        assert(!result.progressKeys.includes("mission-ethics"), `Mission reset did not clear mission progress state: ${JSON.stringify(result)}`);
+        assert(result.taskEvents.join(",") === "task_start", `Mission reset should preserve prior task history without creating terminal events: ${JSON.stringify(result)}`);
+        return { name: "missionResetClearsMarkerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.ensureMissionStarted("mission-ethics");
+          window.openMissionModal("mission-ethics");
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          document.getElementById("modalResetBtn").click();
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.statusTexts.filter(text => text === "学习数据已导出").length === 1, `Successful reset should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "任务进度已重置").length === 1, `Successful reset should record exactly one reset success signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Successful reset toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Successful reset should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionResetDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.markStepDone("mission-ethics", "0");
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.statusTexts.filter(text => text === "旧提示").length === 1, `Step success should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "步骤 1 已标记完成").length === 1, `Step success should record exactly one step-complete success signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Step success toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Step success should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionStepDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const mission = MISSIONS.find(item => item.id === missionId);
+          const lastStepIndex = (mission?.steps.length || 1) - 1;
+          const progress = {};
+          progress[missionId] = { _started: true };
+          for (let index = 0; index < lastStepIndex; index += 1) {
+            progress[missionId]["step" + index] = true;
+          }
+          localStorage.clear();
+          window.saveProgress(progress);
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.markStepDone(missionId, String(lastStepIndex));
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.statusTexts.filter(text => text === "旧提示").length === 1, `Mission completion should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.some(text => text.startsWith("任务完成：")), `Mission completion should record a completion toast signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Mission completion toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Mission completion should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionCompletionDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === progressKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.markStepDone("mission-ethics", "0");
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              saveErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "保存学习进度失败，当前更改未写入浏览器存储。").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              progressRaw: localStorage.getItem(progressKey),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Mission step save failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.saveErrorCount === 1, `Mission step save failure should record exactly one persistence error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Mission step save failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.progressRaw === null, `Mission step save failure should not persist partial progress after silent write failure: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Mission step save failure should leave exactly one visible failure toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionStepSaveFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          window.saveProgress({
+            [missionId]: { _started: true }
+          });
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === progressKey && String(value).includes("\"step0\":true")) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            window.markStepDone(missionId, "0");
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              saveErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "保存学习进度失败，当前更改未写入浏览器存储。").length,
+              taskStartCount: events.filter(event => event.event_name === "task_start" && event.task_name === "dashboard_mission_mission_ethics").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              progressRaw: localStorage.getItem(progressKey),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Mission step update failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.saveErrorCount === 1, `Mission step update failure should record exactly one persistence error signal: ${JSON.stringify(result)}`);
+        assert(result.taskStartCount === 1, `Mission step update failure should still persist the mission start event before the later progress save fails: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Mission step update failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert((result.progressRaw || "").includes("\"_started\":true"), `Mission step update failure should preserve the original started state: ${JSON.stringify(result)}`);
+        assert(!(result.progressRaw || "").includes("\"step0\":true"), `Mission step update failure should not persist the failed step update: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Mission step update failure should leave exactly one visible failure toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionStepUpdateFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+          window.ensureMissionStarted(missionId);
+          window.openMissionModal(missionId);
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === progressKey) {
+              return;
+            }
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            document.getElementById("modalResetBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              saveErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "保存学习进度失败，当前更改未写入浏览器存储。").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              progressRaw: localStorage.getItem(progressKey),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Mission reset save failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.saveErrorCount === 1, `Mission reset save failure should record exactly one persistence error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Mission reset save failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert((result.progressRaw || "").includes("mission-ethics"), `Mission reset save failure should preserve the original mission progress after silent removeItem failure: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Mission reset save failure should leave exactly one visible failure toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionResetSaveFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.ensureMissionStarted(missionId);
+          window.openMissionModal(missionId);
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === taskKey) throw new Error("forced marker remove failure");
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            document.getElementById("modalResetBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              resetErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "任务进度未重置：未能清除该任务的进行中标记，已保留原进度。").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              markerAfter: localStorage.getItem(taskKey),
+              progressRaw: localStorage.getItem("p00_mission_progress"),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Mission reset rollback warning should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.resetErrorCount === 1, `Mission reset rollback warning should record exactly one rollback-preserved error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Mission reset rollback warning toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.markerAfter !== null, `Mission reset rollback warning case unexpectedly cleared the marker: ${JSON.stringify(result)}`);
+        assert((result.progressRaw || "").includes("mission-ethics"), `Mission reset rollback warning case should preserve original progress after rollback: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Mission reset rollback warning should leave exactly one visible failure toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionResetRollbackDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const progressKey = "p00_mission_progress";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.ensureMissionStarted(missionId);
+          window.openMissionModal(missionId);
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === taskKey) throw new Error("forced marker remove failure");
+            return originalRemoveItem.call(this, key);
+          };
+          Storage.prototype.setItem = function (key, value) {
+            if (key === progressKey && String(value).includes("mission-ethics")) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            document.getElementById("modalResetBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              resetErrorCount: events.filter(event => event.event_name === "status_error_signal" && event.status_text === "任务进度重置失败：未能清除进行中标记，且无法恢复原进度。").length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              markerAfter: localStorage.getItem(taskKey),
+              progressRaw: localStorage.getItem(progressKey),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Mission reset rollback failure should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.resetErrorCount === 1, `Mission reset rollback failure should record exactly one rollback-failure error signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Mission reset rollback failure toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.markerAfter !== null, `Mission reset rollback failure case unexpectedly cleared the marker: ${JSON.stringify(result)}`);
+        assert(result.progressRaw === null, `Mission reset rollback failure should surface the lost progress state after failed rollback: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Mission reset rollback failure should leave exactly one visible failure toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionResetRollbackFailureDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          localStorage.clear();
+          window.ensureMissionStarted(missionId);
+          window.openMissionModal(missionId);
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === taskKey) throw new Error("forced marker remove failure");
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            document.getElementById("modalResetBtn").click();
+            const progress = JSON.parse(localStorage.getItem("p00_mission_progress") || "{}");
+            return {
+              markerAfter: localStorage.getItem(taskKey),
+              missionState: progress[missionId] || null
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.markerAfter !== null, `Mission reset rollback case unexpectedly cleared the marker: ${JSON.stringify(result)}`);
+        assert(!!result.missionState?._started, `Mission reset rollback did not preserve mission progress after marker-clear failure: ${JSON.stringify(result)}`);
+        return { name: "missionResetRollbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          localStorage.clear();
+          window.ensureMissionStarted(missionId);
+          window.openMissionModal(missionId);
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === taskKey) return;
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            document.getElementById("modalResetBtn").click();
+            const progress = JSON.parse(localStorage.getItem("p00_mission_progress") || "{}");
+            return {
+              markerAfter: localStorage.getItem(taskKey),
+              missionState: progress[missionId] || null
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.markerAfter !== null, `Mission reset rollback case unexpectedly cleared the marker after silent removeItem no-op: ${JSON.stringify(result)}`);
+        assert(!!result.missionState?._started, `Mission reset rollback did not preserve mission progress after silent marker-clear failure: ${JSON.stringify(result)}`);
+        return { name: "missionResetSilentRollbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        window.__missionCompleteWriteFailures = 0;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"task_complete\"")) {
+            failed = true;
+            window.__missionCompleteWriteFailures += 1;
+            throw new Error("forced mission task_complete write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const mission = MISSIONS.find(item => item.id === missionId);
+          const lastStepIndex = (mission?.steps.length || 1) - 1;
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.ensureMissionStarted(missionId);
+          const progress = loadProgress();
+          const state = getMissionProgressState(progress, missionId, { create: true });
+          for (let index = 0; index < lastStepIndex; index += 1) {
+            state["step" + index] = true;
+          }
+          saveProgress(progress);
+          window.markStepDone(missionId, String(lastStepIndex));
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            writeFailures: window.__missionCompleteWriteFailures || 0,
+            markerAfter: localStorage.getItem(taskKey),
+            taskEvents: events.filter(event => event.task_name === "dashboard_mission_mission_ethics").map(event => event.event_name),
+            progressState: JSON.parse(localStorage.getItem("p00_mission_progress") || "{}")[missionId] || {}
+          };
+        });
+        assert(result.writeFailures === 1, `Mission completion retry case never forced the initial task_complete write failure: ${JSON.stringify(result)}`);
+        assert(result.markerAfter === null, `Mission completion recovery did not clear the open task marker after retry: ${JSON.stringify(result)}`);
+        assert(result.taskEvents.join(",") === "task_start,task_complete", `Mission completion recovery did not restore the missing terminal event: ${JSON.stringify(result)}`);
+        assert(result.progressState._completed === true, `Mission completion recovery did not preserve completed progress state: ${JSON.stringify(result)}`);
+        return { name: "missionCompletionRecoveryCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const markerTime = Date.now() - 2000;
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(taskKey, String(markerTime));
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let markTaskStartCalls = 0;
+          window.pmMetrics.markTaskStart = function (...args) {
+            markTaskStartCalls += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+          try {
+            window.ensureMissionStarted(missionId);
+            window.ensureMissionStarted(missionId);
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            const taskStarts = events.filter(event => event.event_name === "task_start" && event.task_name === "dashboard_mission_mission_ethics");
+            return {
+              markTaskStartCalls,
+              taskStartCount: taskStarts.length,
+              taskStartTime: taskStarts[0]?.event_time || "",
+              markerRaw: localStorage.getItem(taskKey)
+            };
+          } finally {
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.markTaskStartCalls === 0, `Marker-backed backfill should not call markTaskStart, got ${result.markTaskStartCalls}`);
+        assert(result.taskStartCount === 1, `Marker-backed backfill should create exactly one task_start event, got ${result.taskStartCount}`);
+        assert(result.taskStartTime === new Date(Number(result.markerRaw)).toISOString(), `Marker-backed backfill used the wrong event_time: ${result.taskStartTime}`);
+        return { name: "markerBackfillCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const older = Date.now() - 60000;
+          const newer = Date.now() - 2000;
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(taskKey, String(newer));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_start",
+            task_name: "dashboard_mission_mission_ethics",
+            event_time: new Date(older).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "older-open-start",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.ensureMissionStarted(missionId);
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            taskStartTimes: events
+              .filter(event => event.event_name === "task_start" && event.task_name === "dashboard_mission_mission_ethics")
+              .map(event => event.event_time)
+          };
+        });
+        assert(result.taskStartTimes.length === 2, `Dashboard marker backfill did not add newer open task_start: ${JSON.stringify(result)}`);
+        return { name: "markerBackfillNewerOpenCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+
+          const originalGetItem = Storage.prototype.getItem;
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let markTaskStartCalls = 0;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) {
+              throw new Error("forced mission marker read failure");
+            }
+            return originalGetItem.call(this, key);
+          };
+          window.pmMetrics.markTaskStart = function (...args) {
+            markTaskStartCalls += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+
+          try {
+            window.ensureMissionStarted(missionId);
+            return { markTaskStartCalls };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.markTaskStartCalls === 0, `Unreadable existing mission marker should suppress new task_start sync, got ${result.markTaskStartCalls}`);
+        return { name: "unreadableMissionMarkerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) {
+              throw new Error("forced unreadable mission marker");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            return {
+              toastText: document.querySelector("#toastContainer [role='alert'] span[style*='flex: 1']")?.textContent || ""
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.toastText === "当前浏览器存储存在异常任务标记，任务恢复可能不完整。", `Unreadable mission-marker warning toast mismatch: ${JSON.stringify(result)}`);
+        return { name: "unreadableMissionMarkerWarningCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) {
+              throw new Error("forced unreadable mission marker");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            window.refreshDashboard();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const beforeClear = Array.from(document.querySelectorAll("#toastContainer > [role='alert'] span[style*='flex: 1']")).map(el => el.textContent || "");
+            window.clearToasts?.();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.refreshDashboard();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const afterClear = Array.from(document.querySelectorAll("#toastContainer > [role='alert'] span[style*='flex: 1']")).map(el => el.textContent || "");
+            return { beforeClear, afterClear };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.beforeClear.join("|") === "当前浏览器存储存在异常任务标记，任务恢复可能不完整。", `Managed storage warning should not duplicate across repeated refreshes while visible: ${JSON.stringify(result)}`);
+        assert(result.afterClear.join("|") === "当前浏览器存储存在异常任务标记，任务恢复可能不完整。", `Managed storage warning should reappear after being dismissed while the unsafe state persists: ${JSON.stringify(result)}`);
+        return { name: "managedStorageWarningRedisplayCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_start",
+            task_name: "dashboard_mission_mission_ethics",
+            event_time: new Date(Date.now() - 1000).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "existing-open-start",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let callCount = 0;
+          window.pmMetrics.markTaskStart = function (...args) {
+            callCount += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+          try {
+            window.ensureMissionStarted(missionId);
+            return { callCount };
+          } finally {
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.callCount === 0, `Existing open task_start should suppress a new resume sync, got ${result.callCount}`);
+        return { name: "existingOpenStartCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_start",
+            task_name: "dashboard_mission_mission_ethics",
+            event_time: new Date(Date.now() - (9 * 60 * 60 * 1000)).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "stale-open-start",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          const originalMarkTaskStart = window.pmMetrics.markTaskStart;
+          let callCount = 0;
+          window.pmMetrics.markTaskStart = function (...args) {
+            callCount += 1;
+            return originalMarkTaskStart.apply(this, args);
+          };
+          try {
+            window.ensureMissionStarted(missionId);
+            return { callCount };
+          } finally {
+            window.pmMetrics.markTaskStart = originalMarkTaskStart;
+          }
+        });
+        assert(result.callCount === 1, `Stale open task_start should allow a fresh resume sync, got ${result.callCount}`);
+        return { name: "staleOpenStartCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const taskName = "dashboard_mission_mission_ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(taskKey, String(Date.now() + (24 * 60 * 60 * 1000)));
+          window.refreshDashboard();
+          const markerAfterRepair = localStorage.getItem(taskKey);
+          window.pmMetrics.markTaskComplete(taskName, { mission_id: missionId });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          const latest = [...events].reverse().find(event => event.event_name === "task_complete" && event.mission_id === missionId);
+          return {
+            markerAfterRepair,
+            taskCompleteDuration: latest ? latest.task_duration_ms : null
+          };
+        });
+        assert(result.markerAfterRepair === null, `Future-dated task-start marker was not pruned: ${result.markerAfterRepair}`);
+        assert(result.taskCompleteDuration === null, `Future-dated task-start marker still forced a duration value: ${result.taskCompleteDuration}`);
+        return { name: "futureTaskMarkerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const makeEvent = index => ({
+            event_name: "page_view",
+            event_time: new Date(1700000000000 + (index * 1000)).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: `seed-${index}`,
+            app_version: "pm-v1",
+            page_path: "/"
+          });
+          const newestImported = makeEvent(9999);
+          const olderBlock = Array.from({ length: 500 }, (_, index) => makeEvent(index));
+          localStorage.clear();
+          localStorage.setItem(eventsKey, JSON.stringify([newestImported, ...olderBlock]));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            count: events.length,
+            keptNewestImported: events.some(event => event.session_id === newestImported.session_id),
+            firstSession: events[0]?.session_id || "",
+            lastEventName: events[events.length - 1]?.event_name || ""
+          };
+        });
+        assert(result.count === 500, `Chronological trim count mismatch: ${result.count}`);
+        assert(result.keptNewestImported === true, "Chronological trim dropped the newest imported event");
+        assert(result.firstSession === "seed-2", `Chronological trim kept the wrong oldest event: ${result.firstSession}`);
+        assert(result.lastEventName === "cta_click", `Chronological trim did not keep the newest tracked event: ${result.lastEventName}`);
+        return { name: "chronologicalTrimCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const makeEvent = index => ({
+            event_name: "page_view",
+            event_time: new Date(1700000000000 + (index * 1000)).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: `oversized-${index}`,
+            app_version: "pm-v1",
+            page_path: "/"
+          });
+          const importedEvents = Array.from({ length: 501 }, (_, index) => makeEvent(index));
+          localStorage.clear();
+          localStorage.setItem(eventsKey, JSON.stringify(importedEvents));
+          window.refreshDashboard();
+          const stored = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            count: stored.length,
+            firstSession: stored[0]?.session_id || "",
+            lastSession: stored[stored.length - 1]?.session_id || ""
+          };
+        });
+        assert(result.count === 500, `Oversized metric array was not normalized to 500 events: ${result.count}`);
+        assert(result.firstSession === "oversized-1", `Oversized metric array kept the wrong oldest retained event: ${result.firstSession}`);
+        assert(result.lastSession === "oversized-500", `Oversized metric array kept the wrong newest retained event: ${result.lastSession}`);
+        return { name: "oversizedMetricArrayCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(eventsKey, JSON.stringify([
+            {
+              event_name: "page_view",
+              event_time: new Date(Date.now() + (24 * 60 * 60 * 1000)).toISOString(),
+              project_id: "P00-dashboard",
+              project_cluster: "学习中枢",
+              session_id: "future-event",
+              app_version: "pm-v1",
+              page_path: "/"
+            },
+            {
+              event_name: "page_view",
+              event_time: new Date(Date.now() - 1000).toISOString(),
+              project_id: "P00-dashboard",
+              project_cluster: "学习中枢",
+              session_id: "current-event",
+              app_version: "pm-v1",
+              page_path: "/"
+            }
+          ]));
+          window.refreshDashboard();
+          const stored = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            count: stored.length,
+            sessionIds: stored.map(event => event.session_id)
+          };
+        });
+        assert(result.count === 1, `Future-dated metric event was not pruned: ${result.count}`);
+        assert(result.sessionIds.length === 1 && result.sessionIds[0] === "current-event", `Wrong metric events survived future-event pruning: ${JSON.stringify(result.sessionIds)}`);
+        return { name: "futureMetricEventCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      await context.addInitScript(() => {
+        const originalGetItem = Storage.prototype.getItem;
+        const originalSetItem = Storage.prototype.setItem;
+        Storage.prototype.getItem = function (key) {
+          if (this === window.sessionStorage) {
+            throw new Error("forced sessionStorage getItem failure");
+          }
+          return originalGetItem.call(this, key);
+        };
+        Storage.prototype.setItem = function (key, value) {
+          if (this === window.sessionStorage) {
+            throw new Error("forced sessionStorage setItem failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+
+      const pageA = await createReadyPage(context, origin);
+      const sessionA = await pageA.evaluate(() => {
+        const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+        return [...events].reverse().find(event => event.event_name === "page_view")?.session_id || "";
+      });
+      await pageA.close();
+
+      const pageB = await createReadyPage(context, origin);
+      const sessionB = await pageB.evaluate(() => {
+        const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+        return [...events].reverse().find(event => event.event_name === "page_view")?.session_id || "";
+      });
+      await pageB.close();
+
+      assert(sessionA.startsWith("P00-dashboard-volatile-"), `Fallback session id missing volatile prefix: ${sessionA}`);
+      assert(sessionB.startsWith("P00-dashboard-volatile-"), `Fallback session id missing volatile prefix: ${sessionB}`);
+      assert(sessionA !== sessionB, `Fallback session ids should differ across loads when sessionStorage is unavailable: ${sessionA}`);
+      return { name: "sessionFallbackCase", status: "passed" };
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      await context.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key, value) {
+          if (this === window.sessionStorage && key === "pm_metrics_session_P00-dashboard") {
+            return;
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+
+      const pageA = await createReadyPage(context, origin);
+      const sessionA = await pageA.evaluate(() => {
+        const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+        return [...events].reverse().find(event => event.event_name === "page_view")?.session_id || "";
+      });
+      await pageA.close();
+
+      const pageB = await createReadyPage(context, origin);
+      const sessionB = await pageB.evaluate(() => {
+        const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+        return [...events].reverse().find(event => event.event_name === "page_view")?.session_id || "";
+      });
+      await pageB.close();
+
+      assert(sessionA.startsWith("P00-dashboard-volatile-"), `Silent sessionStorage no-op did not trigger volatile fallback prefix: ${sessionA}`);
+      assert(sessionB.startsWith("P00-dashboard-volatile-"), `Silent sessionStorage no-op did not trigger volatile fallback prefix on reload: ${sessionB}`);
+      assert(sessionA !== sessionB, `Silent sessionStorage no-op should still produce distinct volatile session ids across loads: ${sessionA}`);
+      return { name: "sessionSilentWriteFailureCase", status: "passed" };
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"page_view\"")) {
+            failed = true;
+            throw new Error("forced page_view write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const requestFailures = [];
+      const consoleErrors = [];
+      page.on("requestfailed", request => {
+        requestFailures.push(`${request.method()} ${request.url()} -> ${request.failure()?.errorText || "failed"}`);
+      });
+      page.on("console", message => {
+        if (message.type() === "error") consoleErrors.push(message.text());
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      assert(requestFailures.length === 0, `Asset request failures: ${requestFailures.join(" | ")}`);
+      assert(consoleErrors.length === 0, `Console errors: ${consoleErrors.join(" | ")}`);
+      try {
+        await page.waitForTimeout(150);
+        await page.dispatchEvent("body", "pointerdown");
+        const result = await page.evaluate(() => {
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const pageView = events.find(event => event.event_name === "page_view");
+          const firstInteraction = events.find(event => event.event_name === "first_interaction");
+          return {
+            pageViewCount: events.filter(event => event.event_name === "page_view").length,
+            firstInteractionCount: events.filter(event => event.event_name === "first_interaction").length,
+            pageViewTime: pageView ? new Date(pageView.event_time).getTime() : Number.NaN,
+            firstInteractionTime: firstInteraction ? new Date(firstInteraction.event_time).getTime() : Number.NaN,
+            firstInteractionElapsed: firstInteraction?.elapsed_ms
+          };
+        });
+        assert(result.pageViewCount === 1, `page_view did not retry after transient write failure: ${JSON.stringify(result)}`);
+        assert(result.firstInteractionCount === 1, `first_interaction should still be captured during page_view retry recovery: ${JSON.stringify(result)}`);
+        assert(Math.abs((result.firstInteractionTime - result.pageViewTime) - result.firstInteractionElapsed) < 80, `page_view retry did not preserve original event timing: ${JSON.stringify(result)}`);
+        return { name: "pageViewRetryCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"page_view\"")) {
+            failed = true;
+            throw new Error("forced page_view write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            pageViewCount: events.filter(event => event.event_name === "page_view").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length
+          };
+        });
+        assert(result.pageViewCount === 1, `Pending page_view did not flush on later tracked event: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Later tracked event was not preserved while flushing page_view: ${JSON.stringify(result)}`);
+        return { name: "pageViewFlushCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"page_view\"")) {
+            failed = true;
+            throw new Error("forced page_view write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const base = Date.now() + 1000;
+          const filler = Array.from({ length: 500 }, (_, index) => ({
+            event_name: "cta_click",
+            event_time: new Date(base + (index * 200)).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: `fill-${index}`,
+            app_version: "pm-v1",
+            page_path: "/",
+            control_id: `b${index}`
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify(filler));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            count: events.length,
+            eventNames: events.filter(event => event.event_name === "page_view" || (event.event_name === "cta_click" && event.control_id === "probe")).map(event => event.event_name + (event.control_id ? ":" + event.control_id : ""))
+          };
+        });
+        assert(result.count === 500, `Pending page_view flush retention changed total retained count unexpectedly: ${result.count}`);
+        assert(result.eventNames.join(",") === "page_view,cta_click:probe", `Pending page_view was trimmed away under flush retention cap: ${JSON.stringify(result)}`);
+        return { name: "pageViewFlushRetentionCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"page_view\"")) {
+            failed = true;
+            throw new Error("forced page_view write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          const initialPath = location.pathname + location.hash;
+          location.hash = "#later";
+          const laterPath = location.pathname + location.hash;
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const pageView = events.find(event => event.event_name === "page_view");
+          const ctaClick = events.find(event => event.event_name === "cta_click" && event.control_id === "probe");
+          return {
+            initialPath,
+            laterPath,
+            pageViewPath: pageView?.page_path || "",
+            ctaClickPath: ctaClick?.page_path || ""
+          };
+        });
+        assert(result.pageViewPath === result.initialPath, `Recovered page_view used retry-time page_path instead of initial path: ${JSON.stringify(result)}`);
+        assert(result.ctaClickPath === result.laterPath, `Later tracked event did not use current page_path: ${JSON.stringify(result)}`);
+        return { name: "pageViewPathRetryCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const button = document.createElement("button");
+          button.id = "lateBtn";
+          button.type = "button";
+          button.textContent = "Late Button";
+          document.body.appendChild(button);
+          button.click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            lateButtonClicksTracked: events.filter(event => event.event_name === "cta_click" && event.control_id === "lateBtn").length
+          };
+        });
+        assert(result.lateButtonClicksTracked === 1, `Late-added button click was not tracked by delegated CTA handler: ${JSON.stringify(result)}`);
+        return { name: "delegatedCtaCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            lateStatusSignalsTracked: events.filter(event => event.event_name === "status_success_signal").length
+          };
+        });
+        assert(result.lateStatusSignalsTracked === 1, `Late-added status element was not observed: ${JSON.stringify(result)}`);
+        return { name: "lateStatusObserverCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_success_signal");
+          return {
+            count: statusSignals.length,
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.count === 1 && result.statusText === "学习数据已导出", `Toast success notification did not preserve clean message text: ${JSON.stringify(result)}`);
+        return { name: "toastStatusObserverCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast(0, "success", 0);
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const toast = document.querySelector("#toastContainer > [role='status']");
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_success_signal");
+          return {
+            toastExists: !!toast,
+            toastText: toast?.querySelector("span[style*='flex: 1']")?.textContent || toast?.textContent || "",
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.toastExists === true, `Toast with duration 0 did not remain mounted: ${JSON.stringify(result)}`);
+        assert(result.toastText === "0", `Toast numeric message did not render as literal text: ${JSON.stringify(result)}`);
+        assert(result.statusText === "0", `Toast numeric message was not preserved in status tracking: ${JSON.stringify(result)}`);
+        return { name: "toastZeroMessageStickyCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("<strong>不安全</strong>", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const toast = document.querySelector("#toastContainer > [role='status']");
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_success_signal");
+          return {
+            hasInjectedStrong: !!toast?.querySelector("strong"),
+            toastText: toast?.querySelector("span[style*='flex: 1']")?.textContent || toast?.textContent || "",
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.hasInjectedStrong === false, `Toast message HTML was injected into the DOM: ${JSON.stringify(result)}`);
+        assert(result.statusText === "<strong>不安全</strong>", `Toast message markup was not preserved as literal text in metrics: ${JSON.stringify(result)}`);
+        return { name: "toastMessageEscapingCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("第一条", "success", 3000);
+          window.showToast("第二条", "error", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.clearToasts?.();
+          await new Promise(resolve => setTimeout(resolve, 20));
+          return {
+            visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+          };
+        });
+        assert(result.visibleToastCount === 0, `clearToasts() did not remove all visible toast nodes: ${JSON.stringify(result)}`);
+        return { name: "clearToastsHelperCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"status_success_signal\"")) {
+            failed = true;
+            throw new Error("forced toast status write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.clearToasts?.();
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length
+          };
+        });
+        assert(result.statusTexts.length === 0, `clearToasts() did not clear pending toast status state before a later tracked event: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `clearToasts() should not block later tracked events after clearing pending toast state: ${JSON.stringify(result)}`);
+        return { name: "clearToastsPendingStatusCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("已导入 3 条学习数据", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_success_signal");
+          return {
+            count: statusSignals.length,
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.count === 1 && result.statusText === "已导入 3 条学习数据", `Generic success toast was not observed via toast metadata: ${JSON.stringify(result)}`);
+        return { name: "toastGenericSuccessObserverCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("任务进度已重置", "warn", 3000);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_success_signal");
+          return {
+            count: statusSignals.length,
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.count === 1 && result.statusText === "任务进度已重置", `Reset success toast was not observed as a success signal: ${JSON.stringify(result)}`);
+        return { name: "toastResetSuccessObserverCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("导入失败：文件不是有效的 JSON", "error", 3000);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_error_signal");
+          return {
+            count: statusSignals.length,
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.count === 1 && result.statusText === "导入失败：文件不是有效的 JSON", `Toast error notification did not preserve clean message text: ${JSON.stringify(result)}`);
+        return { name: "toastErrorStatusObserverCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("浏览器存储删除不完整，已保留原有数据。", "error", 3000);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_error_signal");
+          return {
+            count: statusSignals.length,
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.count === 1 && result.statusText === "浏览器存储删除不完整，已保留原有数据。", `Generic error toast was not observed via toast metadata: ${JSON.stringify(result)}`);
+        return { name: "toastGenericErrorObserverCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("浏览器拦截了新标签页，请允许弹窗后重试", "warn", 3000);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_error_signal");
+          return {
+            count: statusSignals.length,
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.count === 1 && result.statusText === "浏览器拦截了新标签页，请允许弹窗后重试", `Warn failure toast was not observed as an error signal: ${JSON.stringify(result)}`);
+        return { name: "toastWarnErrorObserverCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("学习数据已清除", "warn", 3000);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSignals = events.filter(event => event.event_name === "status_success_signal");
+          return {
+            count: statusSignals.length,
+            statusText: statusSignals[0]?.status_text || ""
+          };
+        });
+        assert(result.count === 1 && result.statusText === "学习数据已清除", `Clear success toast was not observed as a success signal: ${JSON.stringify(result)}`);
+        return { name: "toastClearSuccessObserverCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          status.textContent = "操作失败";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          status.textContent = "操作失败";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusNames: events
+              .filter(event => event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+              .map(event => `${event.event_name}:${event.status_text}`)
+          };
+        });
+        assert(result.statusNames.join("|") === "status_success_signal:导出成功|status_error_signal:操作失败|status_success_signal:导出成功", `Consecutive duplicate status signals were not deduped correctly: ${JSON.stringify(result)}`);
+        return { name: "statusSignalDedupeCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          status.textContent = "处理中";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusNames: events
+              .filter(event => event.event_name === "status_success_signal")
+              .map(event => event.status_text)
+          };
+        });
+        assert(result.statusNames.join("|") === "导出成功|导出成功", `Status signal did not reset after non-signal text: ${JSON.stringify(result)}`);
+        return { name: "statusSignalResetCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const first = document.createElement("div");
+          first.id = "status";
+          document.body.appendChild(first);
+          first.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          first.remove();
+          await new Promise(resolve => setTimeout(resolve, 20));
+          const second = document.createElement("div");
+          second.id = "status";
+          document.body.appendChild(second);
+          second.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusNames: events
+              .filter(event => event.event_name === "status_success_signal")
+              .map(event => event.status_text)
+          };
+        });
+        assert(result.statusNames.join("|") === "导出成功|导出成功", `Status signal did not reset after status element replacement: ${JSON.stringify(result)}`);
+        return { name: "statusSignalReplaceCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"status_success_signal\"")) {
+            failed = true;
+            throw new Error("forced toast status_success_signal write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(async () => {
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusSuccessCount: events.filter(event => event.event_name === "status_success_signal").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length
+          };
+        });
+        assert(result.statusSuccessCount === 1, `Pending toast status signal did not flush on later tracked event: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Later tracked event was not preserved while flushing pending toast status: ${JSON.stringify(result)}`);
+        return { name: "toastStatusFlushCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        window.__pmStatusWriteFailures = 0;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"status_success_signal\"")) {
+            failed = true;
+            window.__pmStatusWriteFailures += 1;
+            throw new Error("forced status_success_signal write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(async () => {
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 0));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusSuccessCount: events.filter(event => event.event_name === "status_success_signal").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length
+          };
+        });
+        assert(result.statusSuccessCount === 1, `Pending status signal did not flush on later tracked event: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Later tracked event was not preserved while flushing pending status: ${JSON.stringify(result)}`);
+        return { name: "statusSignalFlushCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        window.__pmStatusWriteFailures = 0;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"status_success_signal\"")) {
+            failed = true;
+            window.__pmStatusWriteFailures += 1;
+            throw new Error("forced status_success_signal write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const base = Date.now() + 1000;
+          const filler = Array.from({ length: 500 }, (_, index) => ({
+            event_name: "cta_click",
+            event_time: new Date(base + (index * 200)).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: `fill-${index}`,
+            app_version: "pm-v1",
+            page_path: "/",
+            control_id: `b${index}`
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify(filler));
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 20));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            count: events.length,
+            writeFailures: window.__pmStatusWriteFailures || 0,
+            eventNames: events
+              .filter(event => event.event_name === "status_success_signal" || (event.event_name === "cta_click" && event.control_id === "probe"))
+              .map(event => event.event_name + (event.control_id ? ":" + event.control_id : ""))
+          };
+        });
+        assert(result.count === 500, `Pending status flush retention changed total retained count unexpectedly: ${result.count}`);
+        assert(result.writeFailures === 1, `Full-log status write never reached storage with the pending signal present: ${JSON.stringify(result)}`);
+        assert(result.eventNames.join(",") === "status_success_signal,cta_click:probe", `Pending status signal was trimmed away under flush retention cap: ${JSON.stringify(result)}`);
+        return { name: "statusSignalFlushRetentionCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"status_success_signal\"")) {
+            failed = true;
+            throw new Error("forced status_success_signal write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(async () => {
+          location.hash = "#status";
+          const statusPath = location.pathname + location.hash;
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 0));
+          location.hash = "#later";
+          const laterPath = location.pathname + location.hash;
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const statusSuccess = events.find(event => event.event_name === "status_success_signal");
+          const ctaClick = events.find(event => event.event_name === "cta_click" && event.control_id === "probe");
+          return {
+            statusPath,
+            laterPath,
+            statusEventPath: statusSuccess?.page_path || "",
+            ctaClickPath: ctaClick?.page_path || ""
+          };
+        });
+        assert(result.statusEventPath === result.statusPath, `Recovered status signal used retry-time page_path instead of original status path: ${JSON.stringify(result)}`);
+        assert(result.ctaClickPath === result.laterPath, `Later tracked event did not use current page_path after status flush: ${JSON.stringify(result)}`);
+        return { name: "statusSignalPathCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"status_success_signal\"")) {
+            failed = true;
+            throw new Error("forced first queued status write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(async () => {
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 0));
+          status.textContent = "操作失败";
+          await new Promise(resolve => setTimeout(resolve, 0));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusNames: events
+              .filter(event => event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+              .map(event => `${event.event_name}:${event.status_text}`),
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length
+          };
+        });
+        assert(result.statusNames.join("|") === "status_success_signal:导出成功|status_error_signal:操作失败", `Queued status signals did not flush in order: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Later tracked event was not preserved while flushing queued status signals: ${JSON.stringify(result)}`);
+        return { name: "statusSignalQueueCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"status_success_signal\"")) {
+            failed = true;
+            throw new Error("forced first reset success failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(async () => {
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 0));
+          status.textContent = "处理中";
+          await new Promise(resolve => setTimeout(resolve, 0));
+          status.textContent = "导出成功";
+          await new Promise(resolve => setTimeout(resolve, 0));
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusNames: events
+              .filter(event => event.event_name === "status_success_signal")
+              .map(event => event.status_text)
+          };
+        });
+        assert(result.statusNames.join("|") === "导出成功|导出成功", `Queued status signal did not reset after non-signal state: ${JSON.stringify(result)}`);
+        return { name: "statusSignalQueueResetCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page1 = await context.newPage();
+      await page1.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"status_success_signal\"")) {
+            failed = true;
+            throw new Error("forced status_success_signal write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      await page1.goto(`${origin}/`, { waitUntil: "networkidle" });
+      try {
+        await page1.evaluate(() => {
+          const status = document.createElement("div");
+          status.id = "status";
+          document.body.appendChild(status);
+          status.textContent = "导出成功";
+        });
+      } finally {
+        await page1.close();
+      }
+
+      const page2 = await createReadyPage(context, origin);
+      try {
+        const result = await page2.evaluate(() => {
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            statusSuccessCount: events.filter(event => event.event_name === "status_success_signal").length
+          };
+        });
+        assert(result.statusSuccessCount === 1, `status_success_signal was not recovered on unload after transient write failure: ${JSON.stringify(result)}`);
+        return { name: "statusSignalRetryCase", status: "passed" };
+      } finally {
+        await page2.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"first_interaction\"")) {
+            failed = true;
+            throw new Error("forced first_interaction write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const requestFailures = [];
+      const consoleErrors = [];
+      page.on("requestfailed", request => {
+        requestFailures.push(`${request.method()} ${request.url()} -> ${request.failure()?.errorText || "failed"}`);
+      });
+      page.on("console", message => {
+        if (message.type() === "error") consoleErrors.push(message.text());
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      assert(requestFailures.length === 0, `Asset request failures: ${requestFailures.join(" | ")}`);
+      assert(consoleErrors.length === 0, `Console errors: ${consoleErrors.join(" | ")}`);
+      try {
+        await page.dispatchEvent("body", "pointerdown");
+        await page.waitForTimeout(150);
+        await page.dispatchEvent("body", "keydown", { key: "A" });
+        const result = await page.evaluate(() => {
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const pageView = events.find(event => event.event_name === "page_view");
+          const firstInteraction = events.find(event => event.event_name === "first_interaction");
+          return {
+            firstInteractionCount: events.filter(event => event.event_name === "first_interaction").length,
+            pageViewTime: pageView ? new Date(pageView.event_time).getTime() : Number.NaN,
+            firstInteractionTime: firstInteraction ? new Date(firstInteraction.event_time).getTime() : Number.NaN,
+            firstInteractionElapsed: firstInteraction?.elapsed_ms
+          };
+        });
+        assert(result.firstInteractionCount === 1, `first_interaction did not retry after transient write failure: ${JSON.stringify(result)}`);
+        assert(Math.abs((result.firstInteractionTime - result.pageViewTime) - result.firstInteractionElapsed) < 80, `first_interaction retry did not preserve original event timing: ${JSON.stringify(result)}`);
+        return { name: "firstInteractionRetryCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"first_interaction\"")) {
+            failed = true;
+            throw new Error("forced first_interaction write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        await page.dispatchEvent("body", "pointerdown");
+        const result = await page.evaluate(() => {
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const pageView = events.find(event => event.event_name === "page_view");
+          const firstInteraction = events.find(event => event.event_name === "first_interaction");
+          return {
+            firstInteractionCount: events.filter(event => event.event_name === "first_interaction").length,
+            ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+            pageViewTime: pageView ? new Date(pageView.event_time).getTime() : Number.NaN,
+            firstInteractionTime: firstInteraction ? new Date(firstInteraction.event_time).getTime() : Number.NaN,
+            firstInteractionElapsed: firstInteraction?.elapsed_ms
+          };
+        });
+        assert(result.firstInteractionCount === 1, `Pending first_interaction did not flush on later tracked event: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Later tracked event was not preserved while flushing first_interaction: ${JSON.stringify(result)}`);
+        assert(Math.abs((result.firstInteractionTime - result.pageViewTime) - result.firstInteractionElapsed) < 80, `first_interaction flush did not preserve original event timing: ${JSON.stringify(result)}`);
+        return { name: "firstInteractionFlushCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"first_interaction\"")) {
+            failed = true;
+            throw new Error("forced first_interaction write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          location.hash = "#first";
+          const interactionPath = location.pathname + location.hash;
+          document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+          location.hash = "#later";
+          const laterPath = location.pathname + location.hash;
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          const firstInteraction = events.find(event => event.event_name === "first_interaction");
+          const ctaClick = events.find(event => event.event_name === "cta_click" && event.control_id === "probe");
+          return {
+            interactionPath,
+            laterPath,
+            firstInteractionPath: firstInteraction?.page_path || "",
+            ctaClickPath: ctaClick?.page_path || ""
+          };
+        });
+        assert(result.firstInteractionPath === result.interactionPath, `Recovered first_interaction used retry-time page_path instead of interaction path: ${JSON.stringify(result)}`);
+        assert(result.ctaClickPath === result.laterPath, `Later tracked event did not use current page_path: ${JSON.stringify(result)}`);
+        return { name: "firstInteractionPathCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page1 = await context.newPage();
+      await page1.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"first_interaction\"")) {
+            failed = true;
+            throw new Error("forced first_interaction write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      await page1.goto(`${origin}/`, { waitUntil: "networkidle" });
+      try {
+        await page1.dispatchEvent("body", "pointerdown");
+      } finally {
+        await page1.close();
+      }
+
+      const page2 = await createReadyPage(context, origin);
+      try {
+        const result = await page2.evaluate(() => {
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            firstInteractionCount: events.filter(event => event.event_name === "first_interaction").length
+          };
+        });
+        assert(result.firstInteractionCount === 1, `first_interaction was not recovered on unload after transient write failure: ${JSON.stringify(result)}`);
+        return { name: "firstInteractionUnloadRetryCase", status: "passed" };
+      } finally {
+        await page2.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"task_start\"")) {
+            failed = true;
+            throw new Error("forced task_start event write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          localStorage.clear();
+          window.pmMetrics.markTaskStart("learning_hub_overview_task");
+          window.pmMetrics.markTaskComplete("learning_hub_overview_task", { done: true });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            eventNames: events.map(event => event.event_name)
+          };
+        });
+        assert(result.eventNames.join(",") === "task_start,task_complete", `Missing task_start backfill before terminal event: ${JSON.stringify(result)}`);
+        return { name: "taskStartBackfillCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const older = Date.now() - 60000;
+          const newer = Date.now() - 2000;
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(newer));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_start",
+            task_name: taskName,
+            event_time: new Date(older).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "older-open-start",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.pmMetrics.markTaskComplete(taskName, { done: true });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            taskEvents: events.filter(event => event.task_name === taskName).map(event => event.event_name)
+          };
+        });
+        assert(result.taskEvents.join(",") === "task_start,task_start,task_complete", `Standalone marker backfill did not add newer open task_start before terminal event: ${JSON.stringify(result)}`);
+        return { name: "taskStartBackfillNewerOpenCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"page_view\"")) {
+            failed = true;
+            throw new Error("forced page_view write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+          window.pmMetrics.markTaskComplete("learning_hub_overview_task", { done: true });
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            eventNames: events.map(event => event.event_name)
+          };
+        });
+        assert(result.eventNames.join(",") === "task_start,page_view,task_complete", `Pending page_view was not flushed alongside terminal payload append: ${JSON.stringify(result)}`);
+        return { name: "terminalFlushPendingCoreCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"page_view\"")) {
+            failed = true;
+            throw new Error("forced page_view write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const base = Date.now() + 1000;
+          const filler = Array.from({ length: 500 }, (_, index) => ({
+            event_name: "cta_click",
+            event_time: new Date(base + (index * 200)).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: `fill-${index}`,
+            app_version: "pm-v1",
+            page_path: "/",
+            control_id: `b${index}`
+          }));
+          localStorage.setItem(eventsKey, JSON.stringify(filler));
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+          window.pmMetrics.markTaskComplete("learning_hub_overview_task", { done: true });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            count: events.length,
+            eventNames: events.filter(event => event.event_name === "page_view" || event.task_name === "learning_hub_overview_task").map(event => event.event_name)
+          };
+        });
+        assert(result.count === 500, `Pending-core retention changed total retained event count unexpectedly: ${result.count}`);
+        assert(result.eventNames.join(",") === "task_start,page_view,task_complete", `Pending page_view was trimmed away under terminal append retention cap: ${JSON.stringify(result)}`);
+        return { name: "terminalFlushPendingCoreRetentionCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const progressKey = "p00_mission_progress";
+          localStorage.clear();
+
+          const originalSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === progressKey) {
+              return;
+            }
+            return originalSetItem.call(this, key, value);
+          };
+
+          try {
+            const saved = window.saveProgress({
+              "mission-ethics": { _started: true }
+            });
+            return {
+              saved,
+              progressRaw: localStorage.getItem(progressKey)
+            };
+          } finally {
+            Storage.prototype.setItem = originalSetItem;
+          }
+        });
+        assert(result.saved === false, `saveProgress did not detect silent setItem failure: ${JSON.stringify(result)}`);
+        assert(result.progressRaw === null, `saveProgress silently left stale progress state after failed write detection: ${JSON.stringify(result)}`);
+        return { name: "saveProgressSilentWriteFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const markerTime = Date.now() - (60 * 60 * 1000);
+          const base = Date.now() - (30 * 60 * 1000);
+          const filler = Array.from({ length: 500 }, (_, index) => ({
+            event_name: "cta_click",
+            event_time: new Date(base + (index * 1000)).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: `fill-${index}`,
+            app_version: "pm-v1",
+            page_path: "/",
+            control_id: `b${index}`
+          }));
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(markerTime));
+          localStorage.setItem(eventsKey, JSON.stringify(filler));
+          window.pmMetrics.markTaskComplete(taskName, { done: true });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            count: events.length,
+            eventNames: events.filter(event => event.task_name === taskName).map(event => event.event_name)
+          };
+        });
+        assert(result.count === 500, `Backfill retention changed total retained event count unexpectedly: ${result.count}`);
+        assert(result.eventNames.join(",") === "task_start,task_complete", `Backfilled task_start was trimmed away under retention cap: ${JSON.stringify(result)}`);
+        return { name: "taskStartBackfillRetentionCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"task_start\"")) {
+            failed = true;
+            throw new Error("forced combined task_start/task_complete write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+          window.pmMetrics.markTaskComplete(taskName, { done: true });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events.map(event => event.event_name),
+            markerAfter: localStorage.getItem(taskKey)
+          };
+        });
+        assert(result.eventNames.length === 0, `Terminal write should not partially persist when backfill append fails: ${JSON.stringify(result)}`);
+        assert(result.markerAfter !== null, "Task-start marker should remain after failed combined backfill/terminal write");
+        return { name: "taskStartBackfillAtomicityCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === taskKey) throw new Error("forced task marker remove failure");
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            const completion = window.pmMetrics.markTaskComplete(taskName, { done: true });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              persisted: completion?.persisted === true,
+              markerCleared: completion?.markerCleared === true,
+              markerAfter: localStorage.getItem(taskKey),
+              eventNames: events.filter(event => event.task_name === taskName).map(event => event.event_name)
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.persisted === true, `Terminal write should still persist when marker removal fails: ${JSON.stringify(result)}`);
+        assert(result.markerCleared === false, `markTaskComplete reported marker removal success despite removeItem failure: ${JSON.stringify(result)}`);
+        assert(result.markerAfter !== null, `Forced marker removal failure unexpectedly cleared the task marker: ${JSON.stringify(result)}`);
+        assert(result.eventNames.join(",") === "task_start,task_complete", `Terminal write did not preserve expected task events when marker removal failed: ${JSON.stringify(result)}`);
+        return { name: "taskStartMarkerClearFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) throw new Error("forced unreadable task key after remove");
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const completion = window.pmMetrics.markTaskComplete(taskName, { done: true });
+            const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+            return {
+              persisted: completion?.persisted === true,
+              markerCleared: completion?.markerCleared === true,
+              stillPresent: keys.includes(taskKey)
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.persisted === true, `Terminal write should persist when the removed task marker becomes unreadable: ${JSON.stringify(result)}`);
+        assert(result.markerCleared === true, `markTaskComplete did not report marker removal success when the key was gone but unreadable via getItem: ${JSON.stringify(result)}`);
+        assert(result.stillPresent === false, `Unreadable-after-remove task marker was still present: ${JSON.stringify(result)}`);
+        return { name: "taskStartMarkerUnreadableAfterRemoveCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+
+          const originalRemoveItem = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (key) {
+            if (key === taskKey) throw new Error("forced task marker remove failure");
+            return originalRemoveItem.call(this, key);
+          };
+
+          try {
+            const completion = window.pmMetrics.markTaskError(taskName, "boom");
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              persisted: completion?.persisted === true,
+              markerCleared: completion?.markerCleared === true,
+              markerAfter: localStorage.getItem(taskKey),
+              eventNames: events.filter(event => event.task_name === taskName).map(event => event.event_name)
+            };
+          } finally {
+            Storage.prototype.removeItem = originalRemoveItem;
+          }
+        });
+        assert(result.persisted === true, `Task error write should still persist when marker removal fails: ${JSON.stringify(result)}`);
+        assert(result.markerCleared === false, `markTaskError reported marker removal success despite removeItem failure: ${JSON.stringify(result)}`);
+        assert(result.markerAfter !== null, `Forced marker removal failure unexpectedly cleared the task marker after task_error: ${JSON.stringify(result)}`);
+        assert(result.eventNames.join(",") === "task_start,task_error", `Task error write did not preserve expected task events when marker removal failed: ${JSON.stringify(result)}`);
+        return { name: "taskErrorMarkerClearFailureCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+
+          const originalGetItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) throw new Error("forced unreadable task key after remove");
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            const completion = window.pmMetrics.markTaskError(taskName, "boom");
+            const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+            return {
+              persisted: completion?.persisted === true,
+              markerCleared: completion?.markerCleared === true,
+              stillPresent: keys.includes(taskKey)
+            };
+          } finally {
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.persisted === true, `Task error write should persist when the removed task marker becomes unreadable: ${JSON.stringify(result)}`);
+        assert(result.markerCleared === true, `markTaskError did not report marker removal success when the key was gone but unreadable via getItem: ${JSON.stringify(result)}`);
+        assert(result.stillPresent === false, `Unreadable-after-remove task marker was still present after task_error: ${JSON.stringify(result)}`);
+        return { name: "taskErrorMarkerUnreadableAfterRemoveCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const now = Date.now();
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(now - 60000));
+          localStorage.setItem(eventsKey, JSON.stringify([{
+            event_name: "task_complete",
+            task_name: taskName,
+            event_time: new Date(now - 1000).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: "already-complete",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.pmMetrics.markTaskComplete(taskName, { done: true });
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events.map(event => event.event_name)
+          };
+        });
+        assert(result.eventNames.join(",") === "task_complete,task_complete", `Closed task incorrectly backfilled a new task_start before terminal event: ${JSON.stringify(result)}`);
+        return { name: "taskStartBackfillClosedCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"task_start\"")) {
+            failed = true;
+            throw new Error("forced task_start event write failure before task_error");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          localStorage.clear();
+          window.pmMetrics.markTaskStart("learning_hub_overview_task");
+          window.pmMetrics.markTaskError("learning_hub_overview_task", "boom");
+          const events = JSON.parse(localStorage.getItem("pm_metrics_events_P00-dashboard") || "[]");
+          return {
+            eventNames: events.map(event => event.event_name)
+          };
+        });
+        assert(result.eventNames.join(",") === "task_start,task_error", `Missing task_start backfill before task_error event: ${JSON.stringify(result)}`);
+        return { name: "taskErrorBackfillCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          const markerTime = Date.now() - (60 * 60 * 1000);
+          const base = Date.now() - (30 * 60 * 1000);
+          const filler = Array.from({ length: 500 }, (_, index) => ({
+            event_name: "cta_click",
+            event_time: new Date(base + (index * 1000)).toISOString(),
+            project_id: "P00-dashboard",
+            project_cluster: "学习中枢",
+            session_id: `fill-${index}`,
+            app_version: "pm-v1",
+            page_path: "/",
+            control_id: `b${index}`
+          }));
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(markerTime));
+          localStorage.setItem(eventsKey, JSON.stringify(filler));
+          window.pmMetrics.markTaskError(taskName, "boom");
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            count: events.length,
+            eventNames: events.filter(event => event.task_name === taskName).map(event => event.event_name)
+          };
+        });
+        assert(result.count === 500, `task_error backfill retention changed total retained event count unexpectedly: ${result.count}`);
+        assert(result.eventNames.join(",") === "task_start,task_error", `Backfilled task_start was trimmed away before task_error under retention cap: ${JSON.stringify(result)}`);
+        return { name: "taskErrorBackfillRetentionCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        let failed = false;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard" && !failed && String(value).includes("\"task_start\"")) {
+            failed = true;
+            throw new Error("forced combined task_start/task_error write failure");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      try {
+        const result = await page.evaluate(() => {
+          const taskName = "learning_hub_overview_task";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::learning_hub_overview_task";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+          window.pmMetrics.markTaskError(taskName, "boom");
+          const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+          return {
+            eventNames: events.map(event => event.event_name),
+            markerAfter: localStorage.getItem(taskKey)
+          };
+        });
+        assert(result.eventNames.length === 0, `Task error write should not partially persist when backfill append fails: ${JSON.stringify(result)}`);
+        assert(result.markerAfter !== null, "Task-start marker should remain after failed combined backfill/task_error write");
+        return { name: "taskErrorBackfillAtomicityCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    console.log(JSON.stringify({ ok: true, results }, null, 2));
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+}
+
+run().catch(error => {
+  console.error(error && error.stack ? error.stack : String(error));
+  process.exit(1);
+});

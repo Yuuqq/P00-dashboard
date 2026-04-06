@@ -60,7 +60,8 @@
 .module-card .tool-list li:last-child { border-bottom: none; }
 .tool-link { color: var(--accent); text-decoration: none; font-weight: 500; transition: color 0.15s; }
 .tool-link:hover { text-decoration: underline; color: var(--accent-hover); }
-.tool-used { color: var(--ok); font-size: 0.7rem; background: rgba(52,168,83,0.1); padding: 2px 6px; border-radius: 8px; }
+.tool-used { color: var(--ok); font-size: 0.7rem; background: var(--ok-light); padding: 2px 6px; border-radius: 8px; }
+.tool-restored { color: var(--accent); font-size: 0.7rem; background: var(--accent-light); padding: 2px 6px; border-radius: 8px; }
 
 /* Stats */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }

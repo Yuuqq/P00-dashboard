@@ -2,11 +2,19 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./icon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f4f0e8" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1a1a2e" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="新闻素养中枢" />
   <title>新闻素养学习中枢</title>
-  <link rel="stylesheet" href="../shared/design-tokens.css" />
+  <link rel="stylesheet" href="./shared/design-tokens.css" />
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
   <meta name="description" content="新闻素养学习中枢 — 5 大模块 · 50+ 工具 · 案例任务链驱动的实战训练" />
 </head>
 <body>
@@ -18,7 +26,7 @@
       <div class="hero-stats" id="heroStats">
         <span class="hero-stat"><strong id="statModules">0</strong>/5 模块</span>
         <span class="hero-stat"><strong id="statTasks">0</strong>/5 任务</span>
-        <span class="hero-stat"><strong id="statTools">0</strong>/50 工具</span>
+        <span class="hero-stat"><strong id="statTools">0</strong>/50 涉及工具</span>
         <span class="hero-stat"><strong id="statDwell">0m</strong>学习时长</span>
       </div>
     </header>
@@ -40,25 +48,27 @@
     <!-- Tab: Modules -->
     <section class="tab-panel" id="panelModules" role="tabpanel" aria-labelledby="tabModules" hidden>
       <h2>📚 学习模块</h2>
-      <p class="section-desc">50 个工具按新闻素养核心能力分为 5 大模块。点击工具名直接打开。</p>
+      <p class="section-desc">50 个工具按新闻素养核心能力分为 5 大模块。点击工具名直接打开。<code>✓ 已用</code> 表示已有工具事件记录，<code>↺ 已恢复</code> 表示该工具状态来自任务进度恢复。</p>
       <div class="module-grid" id="moduleGrid"></div>
     </section>
 
     <!-- Tab: Stats -->
     <section class="tab-panel" id="panelStats" role="tabpanel" aria-labelledby="tabStats" hidden>
       <h2>📊 学习画像</h2>
-      <p class="section-desc">基于 localStorage 的本地数据统计，数据仅存在于你的浏览器中。</p>
+      <p class="section-desc">基于 localStorage 的本地数据统计，数据仅存在于你的浏览器中。总事件数与学习时长包含学习中枢自身交互；工具排行与活跃日历仅统计具体工具事件。</p>
       <div class="stats-grid" id="statsGrid">
         <div class="stat-card"><span class="stat-num" id="sTotalEvents">-</span><span class="stat-label">总事件数</span></div>
-        <div class="stat-card"><span class="stat-num" id="sToolsUsed">-</span><span class="stat-label">已用工具</span></div>
+        <div class="stat-card"><span class="stat-num" id="sToolsUsed">-</span><span class="stat-label">已涉及工具</span></div>
         <div class="stat-card"><span class="stat-num" id="sTasksDone">-</span><span class="stat-label">完成任务</span></div>
         <div class="stat-card"><span class="stat-num" id="sDwell">-</span><span class="stat-label">总停留</span></div>
       </div>
       <div class="card" id="usageChart"><h3>🏆 工具使用排行</h3><div id="barChart"></div></div>
       <div class="card" id="calCard"><h3>📅 活跃日历 (90天)</h3><div class="calendar-area" id="calChart"></div></div>
       <div class="card actions-card">
+        <button id="importBtn" type="button" class="btn-secondary">📤 导入数据 (JSON)</button>
         <button id="exportBtn" type="button">📥 导出数据 (JSON)</button>
-        <button id="clearBtn" type="button" class="btn-secondary">🗑️ 清除全部数据</button>
+        <button id="clearBtn" type="button" class="btn-secondary" data-pm-ignore-metrics="1">🗑️ 清除全部数据</button>
+        <input id="importInput" class="sr-only" type="file" accept="application/json,.json" />
       </div>
     </section>
 
@@ -80,13 +90,14 @@
     </div>
 
     <footer class="footer">
-      <p>新闻素养工具集 · 50 个项目 · <a href="https://github.com/Yuuqq" target="_blank">GitHub @Yuuqq</a></p>
+      <p>新闻素养工具集 · 50 个项目 · <a href="https://github.com/Yuuqq" target="_blank" rel="noopener noreferrer" aria-label="GitHub @Yuuqq，在新标签页打开">GitHub @Yuuqq</a></p>
     </footer>
   </main>
 
-  <script src="../shared/toast.js" defer></script>
+  <script src="./pm-metrics.js" defer></script>
+  <script src="./shared/toast.js" defer></script>
   <script src="./app.js" defer></script>
-  <script src="../shared/dark-toggle.js" defer></script>
+  <script src="./shared/dark-toggle.js" defer></script>
 </body>
 </html>
 
