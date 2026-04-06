@@ -1,0 +1,10 @@
+{
+  "name": "p00-dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "description": "新闻素养学习中枢本地回归检查入口",
+  "scripts": {
+    "check": "node --check app.js && node --check pm-metrics.js && node --check sw.js && node --check scripts/regression-check.mjs",
+    "regression": "node scripts/regression-check.mjs"
+  }
+}
