@@ -20,9 +20,69 @@ const CONTENT_TYPES = {
   ".png": "image/png",
   ".svg": "image/svg+xml"
 };
+const DASHBOARD_EVENTS_KEY = "pm_metrics_events_P00-dashboard";
+const VISIBLE_TOAST_SELECTOR = "#toastContainer > [role='status'], #toastContainer > [role='alert']";
+const ETHICS_STEP_0_PROGRESS = {
+  "mission-ethics": { _started: true, step0: true }
+};
+
+function extractQuotedArrayConstant(source, constantName) {
+  const pattern = new RegExp(`const\\s+${constantName}\\s*=\\s*\\[([\\s\\S]*?)\\];`);
+  const match = source.match(pattern);
+  if (!match || !match[1]) {
+    throw new Error(`Could not locate array constant ${constantName}`);
+  }
+  const values = [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+  if (!values.length) {
+    throw new Error(`Array constant ${constantName} did not contain any quoted entries`);
+  }
+  return values;
+}
+
+const SERVICE_WORKER_SOURCE = await readFile(path.join(ROOT_DIR, "sw.js"), "utf8");
+const OFFLINE_FETCH_ASSETS = extractQuotedArrayConstant(SERVICE_WORKER_SOURCE, "CORE_ASSETS")
+  .filter((asset) => asset !== "./" && asset !== "./index.html" && asset !== "./manifest.json");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function assertThemeUiState(result, { theme, buttonLabel, buttonPressed, storedThemeRaw }, prefix) {
+  assert(result.theme === theme, `${prefix} did not update the data-theme attribute: ${JSON.stringify(result)}`);
+  assert(result.colorScheme === theme, `${prefix} did not update color-scheme: ${JSON.stringify(result)}`);
+  assert(result.buttonLabel === buttonLabel, `${prefix} did not update the dark-toggle button label: ${JSON.stringify(result)}`);
+  assert(result.buttonPressed === buttonPressed, `${prefix} did not update the dark-toggle button pressed state: ${JSON.stringify(result)}`);
+  assert(result.themeColor === result.bg, `${prefix} did not keep theme-color aligned with the active background token: ${JSON.stringify(result)}`);
+  assert(result.themeColorMedia === "", `${prefix} should keep only the active theme-color meta without media after updates: ${JSON.stringify(result)}`);
+  if (storedThemeRaw !== undefined) {
+    assert(result.storedThemeRaw === storedThemeRaw, `${prefix} did not preserve the expected stored theme preference state: ${JSON.stringify(result)}`);
+  }
+}
+
+function lightThemeExpectation(storedThemeRaw) {
+  return {
+    theme: "light",
+    buttonLabel: "切换到暗色模式",
+    buttonPressed: "false",
+    storedThemeRaw
+  };
+}
+
+function darkThemeExpectation(storedThemeRaw) {
+  return {
+    theme: "dark",
+    buttonLabel: "切换到亮色模式",
+    buttonPressed: "true",
+    storedThemeRaw
+  };
+}
+
+function readDashboardEventsExpression() {
+  return `JSON.parse(localStorage.getItem("${DASHBOARD_EVENTS_KEY}") || "[]")`;
+}
+
+function visibleToastCountExpression() {
+  return `document.querySelectorAll("${VISIBLE_TOAST_SELECTOR}").length`;
 }
 
 function createStaticServer(rootDir) {
@@ -87,6 +147,337 @@ async function runIsolatedCase(browser, origin, runCase) {
   } finally {
     await context.close();
   }
+}
+
+async function setMissionProgress(page, progress) {
+  await page.evaluate((nextProgress) => {
+    localStorage.setItem("p00_mission_progress", JSON.stringify(nextProgress));
+  }, progress);
+}
+
+async function waitForStatTools(page, expectedCount) {
+  await page.waitForFunction((count) => {
+    return document.getElementById("statTools")?.textContent === count;
+  }, String(expectedCount));
+}
+
+async function focusStatsExportControl(page) {
+  await page.click("#tabStats");
+  await page.focus("#exportBtn");
+}
+
+async function waitForFocusedStatsExportControl(page, expectedToolCount) {
+  await page.waitForFunction((count) => {
+    return document.getElementById("statTools")?.textContent === count
+      && document.activeElement?.id === "exportBtn"
+      && document.getElementById("tabStats")?.getAttribute("aria-selected") === "true"
+      && document.getElementById("panelStats")?.hidden === false;
+  }, String(expectedToolCount));
+}
+
+async function readStatsExportFocusState(page) {
+  return page.evaluate(() => ({
+    activeElementId: document.activeElement?.id || "",
+    statsSelected: document.getElementById("tabStats")?.getAttribute("aria-selected") || "",
+    statsHidden: document.getElementById("panelStats")?.hidden,
+    statTools: document.getElementById("statTools")?.textContent || ""
+  }));
+}
+
+async function waitForEthicsModalOpen(page, startLabelIncludes = "") {
+  await page.waitForFunction((label) => {
+    return document.getElementById("missionModal")?.classList.contains("open")
+      && (!label || (document.getElementById("modalStartBtn")?.textContent || "").includes(label));
+  }, startLabelIncludes);
+}
+
+async function openEthicsModal(page, startLabelIncludes = "") {
+  await page.click('.mission-card[data-mission="mission-ethics"]');
+  await waitForEthicsModalOpen(page, startLabelIncludes);
+}
+
+async function readMissionModalState(page) {
+  return page.evaluate(() => ({
+    modalOpen: document.getElementById("missionModal")?.classList.contains("open") || false,
+    activeElementId: document.activeElement?.id || "",
+    activeStep: document.activeElement?.getAttribute("data-step") || "",
+    activeClass: document.activeElement?.className || "",
+    startLabel: document.getElementById("modalStartBtn")?.textContent || "",
+    completedStepCount: document.querySelectorAll("#modalSteps .step-done").length,
+    firstStepLinkCount: document.querySelectorAll('#modalSteps .tool-link[data-step="0"]').length
+  }));
+}
+
+async function waitForMissionModalFocusState(page, { activeElementId = "", activeStep = "", startLabelIncludes = "" } = {}) {
+  await page.waitForFunction((expected) => {
+    const modalOpen = document.getElementById("missionModal")?.classList.contains("open");
+    const activeElement = document.activeElement;
+    const startLabel = document.getElementById("modalStartBtn")?.textContent || "";
+    if (!modalOpen) return false;
+    if (expected.activeElementId && activeElement?.id !== expected.activeElementId) return false;
+    if (expected.activeStep && activeElement?.getAttribute("data-step") !== expected.activeStep) return false;
+    if (expected.startLabelIncludes && !startLabel.includes(expected.startLabelIncludes)) return false;
+    return true;
+  }, {
+    activeElementId,
+    activeStep,
+    startLabelIncludes
+  });
+}
+
+async function sleep(ms = 50) {
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function installSystemThemeMock(context, initialTheme = "light", options = {}) {
+  await context.addInitScript(({ initial, legacyListener }) => {
+    const media = "(prefers-color-scheme: dark)";
+    const listeners = new Set();
+    let matches = initial === "dark";
+    let addEventListenerCount = 0;
+    let addListenerCount = 0;
+
+    const themeQuery = {
+      media,
+      get matches() {
+        return matches;
+      },
+      onchange: null,
+      addListener(listener) {
+        addListenerCount += 1;
+        listeners.add(listener);
+      },
+      removeListener(listener) {
+        listeners.delete(listener);
+      }
+    };
+    if (!legacyListener) {
+      themeQuery.addEventListener = function (type, listener) {
+        if (type === "change") {
+          addEventListenerCount += 1;
+          listeners.add(listener);
+        }
+      };
+      themeQuery.removeEventListener = function (type, listener) {
+        if (type === "change") listeners.delete(listener);
+      };
+    }
+
+    window.__setMockSystemTheme = (theme) => {
+      matches = theme === "dark";
+      const event = { matches, media };
+      listeners.forEach((listener) => {
+        if (typeof listener === "function") {
+          listener.call(themeQuery, event);
+        } else if (listener && typeof listener.handleEvent === "function") {
+          listener.handleEvent(event);
+        }
+      });
+      if (typeof themeQuery.onchange === "function") {
+        themeQuery.onchange.call(themeQuery, event);
+      }
+    };
+    window.__readMockSystemThemeRegistration = () => ({
+      addEventListenerCount,
+      addListenerCount
+    });
+
+    window.matchMedia = (query) => {
+      if (query === media) return themeQuery;
+      const fallbackQuery = {
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener() {},
+        removeListener() {}
+      };
+      if (!legacyListener) {
+        fallbackQuery.addEventListener = function () {};
+        fallbackQuery.removeEventListener = function () {};
+      }
+      return fallbackQuery;
+    };
+  }, { initial: initialTheme, legacyListener: options.legacyListener === true });
+}
+
+async function installNoMatchMedia(context) {
+  await context.addInitScript(() => {
+    window.matchMedia = undefined;
+  });
+}
+
+async function installUnreadableThemeStorage(context, seedValue = null) {
+  await context.addInitScript((initialValue) => {
+    const storageKey = "journalism_toolbox_theme";
+    if (initialValue !== null) {
+      localStorage.setItem(storageKey, initialValue);
+    }
+    const originalGetItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key) {
+      if (key === storageKey) {
+        throw new Error("forced theme getItem failure");
+      }
+      return originalGetItem.call(this, key);
+    };
+  }, seedValue);
+}
+
+async function readThemeState(page) {
+  return page.evaluate(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    return {
+      theme: document.documentElement.getAttribute("data-theme") || "",
+      colorScheme: document.documentElement.style.colorScheme || "",
+      buttonLabel: document.getElementById("darkToggleBtn")?.getAttribute("aria-label") || "",
+      buttonPressed: document.getElementById("darkToggleBtn")?.getAttribute("aria-pressed") || "",
+      themeColor: meta?.getAttribute("content") || "",
+      themeColorMedia: meta?.getAttribute("media") || "",
+      bg: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+      storedThemeRaw: (() => {
+        try {
+          return localStorage.getItem("journalism_toolbox_theme");
+        } catch {
+          return "__unreadable__";
+        }
+      })()
+    };
+  });
+}
+
+async function assertCurrentThemeState(page, expected, prefix) {
+  const result = await readThemeState(page);
+  assertThemeUiState(result, expected, prefix);
+  return result;
+}
+
+async function waitForTheme(page, expectedTheme) {
+  await page.waitForFunction((theme) => {
+    return document.documentElement.getAttribute("data-theme") === theme;
+  }, expectedTheme);
+}
+
+async function setStoredTheme(page, value) {
+  await page.evaluate((nextValue) => {
+    if (nextValue === null) {
+      localStorage.removeItem("journalism_toolbox_theme");
+      return;
+    }
+    localStorage.setItem("journalism_toolbox_theme", nextValue);
+  }, value);
+}
+
+async function setCrossTabStoredTheme(pageA, pageB, storedTheme, expectedTheme = storedTheme === "dark" ? "dark" : "light") {
+  await setStoredTheme(pageA, storedTheme);
+  await waitForTheme(pageB, expectedTheme);
+}
+
+async function emulateAndReload(pages, colorScheme = "light") {
+  await Promise.all(pages.map((page) => page.emulateMedia({ colorScheme })));
+  await Promise.all(pages.map((page) => page.reload({ waitUntil: "networkidle" })));
+}
+
+async function reloadThemePage(page, { colorScheme = null, storedTheme } = {}) {
+  if (colorScheme) {
+    await page.emulateMedia({ colorScheme });
+  }
+  if (storedTheme !== undefined) {
+    await setStoredTheme(page, storedTheme);
+  }
+  await page.reload({ waitUntil: "networkidle" });
+}
+
+async function seedCrossTabDarkTheme(pageA, pageB, colorScheme = "light") {
+  await emulateAndReload([pageA, pageB], colorScheme);
+  await setCrossTabStoredTheme(pageA, pageB, "dark");
+}
+
+async function createNoMatchMediaPage(context, origin) {
+  await installNoMatchMedia(context);
+  return createReadyPage(context, origin);
+}
+
+async function createNoMatchMediaPagePair(context, origin) {
+  await installNoMatchMedia(context);
+  return {
+    pageA: await createReadyPage(context, origin),
+    pageB: await createReadyPage(context, origin)
+  };
+}
+
+async function createPagePair(context, origin) {
+  return {
+    pageA: await createReadyPage(context, origin),
+    pageB: await createReadyPage(context, origin)
+  };
+}
+
+async function installThemeUnreadableProbe(page) {
+  await page.evaluate(() => {
+    const themeKey = "journalism_toolbox_theme";
+    const originalGetItem = Storage.prototype.getItem;
+    const originalSetAttribute = Element.prototype.setAttribute;
+    let themeWriteCount = 0;
+    window.__themeUnreadableProbe = {
+      read() {
+        return { themeWriteCount };
+      },
+      restore() {
+        Storage.prototype.getItem = originalGetItem;
+        Element.prototype.setAttribute = originalSetAttribute;
+        delete window.__themeUnreadableProbe;
+      }
+    };
+    Storage.prototype.getItem = function (key) {
+      if (key === themeKey) {
+        throw new Error("forced unreadable theme key");
+      }
+      return originalGetItem.call(this, key);
+    };
+    Element.prototype.setAttribute = function (name, value) {
+      const isThemeWrite = (this === document.documentElement && name === "data-theme")
+        || (this instanceof HTMLButtonElement && this.id === "darkToggleBtn" && (name === "aria-label" || name === "aria-pressed"))
+        || (this instanceof HTMLMetaElement && this.getAttribute("name") === "theme-color" && (name === "content" || name === "media"));
+      if (isThemeWrite) themeWriteCount += 1;
+      return originalSetAttribute.call(this, name, value);
+    };
+  });
+}
+
+async function readAndRestoreThemeUnreadableProbe(page) {
+  const probe = await page.evaluate(() => window.__themeUnreadableProbe?.read?.() || { themeWriteCount: -1 });
+  const state = await readThemeState(page);
+  await page.evaluate(() => window.__themeUnreadableProbe?.restore?.());
+  return { probe, state };
+}
+
+async function installThemeWriteProbe(page) {
+  await page.evaluate(() => {
+    const originalSetAttribute = Element.prototype.setAttribute;
+    let themeWriteCount = 0;
+    window.__themeWriteProbe = {
+      read() {
+        return { themeWriteCount };
+      },
+      restore() {
+        Element.prototype.setAttribute = originalSetAttribute;
+        delete window.__themeWriteProbe;
+      }
+    };
+    Element.prototype.setAttribute = function (name, value) {
+      const isThemeWrite = (this === document.documentElement && name === "data-theme")
+        || (this instanceof HTMLButtonElement && this.id === "darkToggleBtn" && (name === "aria-label" || name === "aria-pressed"))
+        || (this instanceof HTMLMetaElement && this.getAttribute("name") === "theme-color" && (name === "content" || name === "media"));
+      if (isThemeWrite) themeWriteCount += 1;
+      return originalSetAttribute.call(this, name, value);
+    };
+  });
+}
+
+async function readAndRestoreThemeWriteProbe(page) {
+  const probe = await page.evaluate(() => window.__themeWriteProbe?.read?.() || { themeWriteCount: -1 });
+  const state = await readThemeState(page);
+  await page.evaluate(() => window.__themeWriteProbe?.restore?.());
+  return { probe, state };
 }
 
 async function run() {
@@ -720,22 +1111,1620 @@ async function run() {
     }));
 
     results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          function readThemeColorState() {
+            const metas = Array.from(document.querySelectorAll('meta[name="theme-color"]'));
+            const primary = metas[0];
+            return {
+              count: metas.length,
+              content: primary?.getAttribute("content") || "",
+              media: primary?.getAttribute("media") || "",
+              bg: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+              theme: document.documentElement.getAttribute("data-theme") || ""
+            };
+          }
+
+          const before = readThemeColorState();
+          document.getElementById("darkToggleBtn")?.click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const after = readThemeColorState();
+          return { before, after };
+        });
+        assert(result.before.count === 1, `Theme-color init should collapse source meta tags down to one active tag: ${JSON.stringify(result)}`);
+        assert(result.before.media === "", `Active theme-color meta should not keep a media attribute after init: ${JSON.stringify(result)}`);
+        assert(result.before.content === result.before.bg, `Active theme-color meta did not match the current background token before toggle: ${JSON.stringify(result)}`);
+        assert(result.after.count === 1, `Theme-color toggle should keep exactly one active meta tag: ${JSON.stringify(result)}`);
+        assert(result.after.media === "", `Active theme-color meta should not regain a media attribute after toggle: ${JSON.stringify(result)}`);
+        assert(result.after.theme !== result.before.theme, `Dark toggle did not change the document theme before validating theme-color sync: ${JSON.stringify(result)}`);
+        assert(result.after.content === result.after.bg, `Active theme-color meta did not match the current background token after toggle: ${JSON.stringify(result)}`);
+        assert(result.after.content !== result.before.content, `Theme-color meta content did not change with the toggled theme: ${JSON.stringify(result)}`);
+        return { name: "themeColorMetaSyncCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
       const pageA = await createReadyPage(context, origin);
       const pageB = await createReadyPage(context, origin);
       try {
         const before = await pageB.locator("#statTools").textContent();
-        await pageA.evaluate(() => {
-          localStorage.setItem("p00_mission_progress", JSON.stringify({
-            "mission-ethics": { _started: true, step0: true }
-          }));
-        });
-        await pageB.waitForFunction(() => document.getElementById("statTools")?.textContent === "1");
+        await setMissionProgress(pageA, ETHICS_STEP_0_PROGRESS);
+        await waitForStatTools(pageB, 1);
         const after = await pageB.locator("#statTools").textContent();
         assert(before === "0" && after === "1", `Cross-tab sync mismatch: before=${before} after=${after}`);
         return { name: "crossTabCase", status: "passed" };
       } finally {
         await pageA.close();
         await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await focusStatsExportControl(pageB);
+        await setMissionProgress(pageA, ETHICS_STEP_0_PROGRESS);
+        await waitForFocusedStatsExportControl(pageB, 1);
+        const result = await readStatsExportFocusState(pageB);
+
+        assert(result.activeElementId === "exportBtn", `Cross-tab refresh should restore focus to the previously focused page control: ${JSON.stringify(result)}`);
+        assert(result.statsSelected === "true" && result.statsHidden === false, `Cross-tab refresh should preserve the active stats panel while restoring focus: ${JSON.stringify(result)}`);
+        assert(result.statTools === "1", `Cross-tab refresh did not apply the incoming storage update before restoring focus: ${JSON.stringify(result)}`);
+        return { name: "crossTabFocusRestoreCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await setMissionProgress(pageA, ETHICS_STEP_0_PROGRESS);
+        await waitForStatTools(pageB, 1);
+        await focusStatsExportControl(pageB);
+
+        await pageA.evaluate(() => {
+          localStorage.clear();
+        });
+
+        await waitForFocusedStatsExportControl(pageB, 0);
+        const result = await readStatsExportFocusState(pageB);
+
+        assert(result.activeElementId === "exportBtn", `Cross-tab clear refresh should restore focus to the previously focused page control: ${JSON.stringify(result)}`);
+        assert(result.statsSelected === "true" && result.statsHidden === false, `Cross-tab clear refresh should preserve the active stats panel while restoring focus: ${JSON.stringify(result)}`);
+        assert(result.statTools === "0", `Cross-tab clear refresh did not apply the null-key storage reset before restoring focus: ${JSON.stringify(result)}`);
+        return { name: "crossTabClearFocusRestoreCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await pageB.evaluate(() => {
+          const originalRefreshDashboard = window.refreshDashboard;
+          let refreshCount = 0;
+          window.__refreshProbe = {
+            read() {
+              return refreshCount;
+            },
+            restore() {
+              window.refreshDashboard = originalRefreshDashboard;
+              delete window.__refreshProbe;
+            }
+          };
+          window.refreshDashboard = function (...args) {
+            refreshCount += 1;
+            return originalRefreshDashboard.apply(this, args);
+          };
+        });
+
+        await pageA.evaluate(() => {
+          localStorage.setItem("unmanaged_probe_key", "1");
+        });
+        await pageB.waitForTimeout(150);
+        const afterUnmanaged = await pageB.evaluate(() => window.__refreshProbe?.read?.() ?? -1);
+
+        await setMissionProgress(pageA, ETHICS_STEP_0_PROGRESS);
+        await pageB.waitForFunction(() => (window.__refreshProbe?.read?.() ?? 0) === 1);
+
+        const result = await pageB.evaluate(() => {
+          const afterManaged = window.__refreshProbe?.read?.() ?? -1;
+          window.__refreshProbe?.restore?.();
+          return {
+            afterManaged,
+            statTools: document.getElementById("statTools")?.textContent || ""
+          };
+        });
+
+        assert(afterUnmanaged === 0, `Cross-tab storage updates for unrelated keys should not queue a dashboard refresh: ${JSON.stringify({ afterUnmanaged })}`);
+        assert(result.afterManaged === 1, `Cross-tab storage updates for managed keys should queue exactly one dashboard refresh: ${JSON.stringify(result)}`);
+        assert(result.statTools === "1", `Cross-tab managed-key refresh did not apply the incoming progress update: ${JSON.stringify(result)}`);
+        return { name: "crossTabManagedKeyFilterCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const originalRefreshDashboard = window.refreshDashboard;
+          let refreshCount = 0;
+          window.refreshDashboard = function (...args) {
+            refreshCount += 1;
+            return originalRefreshDashboard.apply(this, args);
+          };
+
+          try {
+            window.scheduleDashboardRefresh();
+            window.scheduleDashboardRefresh();
+            window.dispatchEvent(new Event("focus"));
+            document.dispatchEvent(new Event("visibilitychange"));
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const afterBurst = refreshCount;
+
+            window.scheduleDashboardRefresh();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            return {
+              afterBurst,
+              afterSecondFrame: refreshCount
+            };
+          } finally {
+            window.refreshDashboard = originalRefreshDashboard;
+          }
+        });
+
+        assert(result.afterBurst === 1, `Refresh queue should coalesce same-frame direct, focus, and visibility refresh requests into one render: ${JSON.stringify(result)}`);
+        assert(result.afterSecondFrame === 2, `Refresh queue should reset after the queued render so a later refresh can run: ${JSON.stringify(result)}`);
+        return { name: "refreshQueueCoalescingCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const originalRefreshDashboard = window.refreshDashboard;
+          let refreshCount = 0;
+          window.refreshDashboard = function (...args) {
+            refreshCount += 1;
+            return originalRefreshDashboard.apply(this, args);
+          };
+
+          try {
+            window.dispatchEvent(new Event("focus"));
+            await new Promise(resolve => setTimeout(resolve, 50));
+            return { refreshCount };
+          } finally {
+            window.refreshDashboard = originalRefreshDashboard;
+          }
+        });
+
+        assert(result.refreshCount === 1, `Focus events should queue exactly one dashboard refresh: ${JSON.stringify(result)}`);
+        return { name: "focusRefreshCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const originalRefreshDashboard = window.refreshDashboard;
+          let refreshCount = 0;
+          let visibilityState = document.visibilityState;
+          window.refreshDashboard = function (...args) {
+            refreshCount += 1;
+            return originalRefreshDashboard.apply(this, args);
+          };
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            get() {
+              return visibilityState;
+            }
+          });
+
+          try {
+            visibilityState = "hidden";
+            document.dispatchEvent(new Event("visibilitychange"));
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const afterHidden = refreshCount;
+
+            visibilityState = "visible";
+            document.dispatchEvent(new Event("visibilitychange"));
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            return {
+              afterHidden,
+              afterVisible: refreshCount
+            };
+          } finally {
+            window.refreshDashboard = originalRefreshDashboard;
+            delete document.visibilityState;
+          }
+        });
+
+        assert(result.afterHidden === 0, `Hidden visibilitychange events should not queue a dashboard refresh: ${JSON.stringify(result)}`);
+        assert(result.afterVisible === 1, `Visible visibilitychange events should queue exactly one dashboard refresh: ${JSON.stringify(result)}`);
+        return { name: "visibilityRefreshGuardCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const missionsTab = page.locator("#tabMissions");
+        await missionsTab.focus();
+        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press("Home");
+        await page.keyboard.press("End");
+
+        const result = await page.evaluate(() => ({
+          activeElementId: document.activeElement?.id || "",
+          missionsSelected: document.getElementById("tabMissions")?.getAttribute("aria-selected") || "",
+          modulesSelected: document.getElementById("tabModules")?.getAttribute("aria-selected") || "",
+          statsSelected: document.getElementById("tabStats")?.getAttribute("aria-selected") || "",
+          missionsTabIndex: document.getElementById("tabMissions")?.tabIndex,
+          modulesTabIndex: document.getElementById("tabModules")?.tabIndex,
+          statsTabIndex: document.getElementById("tabStats")?.tabIndex,
+          missionsHidden: document.getElementById("panelMissions")?.hidden,
+          modulesHidden: document.getElementById("panelModules")?.hidden,
+          statsHidden: document.getElementById("panelStats")?.hidden
+        }));
+        assert(result.activeElementId === "tabStats", `Tab keyboard navigation should leave focus on the final active tab: ${JSON.stringify(result)}`);
+        assert(result.missionsSelected === "false" && result.modulesSelected === "false" && result.statsSelected === "true", `Tab keyboard navigation did not update aria-selected states correctly: ${JSON.stringify(result)}`);
+        assert(result.missionsTabIndex === -1 && result.modulesTabIndex === -1 && result.statsTabIndex === 0, `Tab keyboard navigation did not update tabindex states correctly: ${JSON.stringify(result)}`);
+        assert(result.missionsHidden === true && result.modulesHidden === true && result.statsHidden === false, `Tab keyboard navigation did not toggle the tab panels correctly: ${JSON.stringify(result)}`);
+        return { name: "tabKeyboardNavigationCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.focus('.mission-card[data-mission="mission-ethics"]');
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(() => document.getElementById("missionModal")?.classList.contains("open"));
+
+        const result = await page.evaluate(async () => {
+          const modal = document.getElementById("missionModal");
+          const modalClose = document.getElementById("modalClose");
+          const modalReset = document.getElementById("modalResetBtn");
+          const modalStart = document.getElementById("modalStartBtn");
+
+          const initialFocusId = document.activeElement?.id || "";
+
+          modalClose?.focus();
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true, shiftKey: true }));
+          const afterShiftTabId = document.activeElement?.id || "";
+
+          modalReset?.focus();
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+          const afterTabId = document.activeElement?.id || "";
+
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          return {
+            initialFocusId,
+            afterShiftTabId,
+            afterTabId,
+            modalOpenAfterEscape: modal?.classList.contains("open") || false,
+            modalAriaHidden: modal?.getAttribute("aria-hidden") || "",
+            restoredFocusMission: document.activeElement?.getAttribute("data-mission") || "",
+            restoredFocusRole: document.activeElement?.getAttribute("role") || ""
+          };
+        });
+        assert(result.initialFocusId === "modalClose", `Opening the mission modal should focus the close button first: ${JSON.stringify(result)}`);
+        assert(result.afterShiftTabId === "modalResetBtn", `Shift+Tab at the first modal control should wrap focus to the last focusable control: ${JSON.stringify(result)}`);
+        assert(result.afterTabId === "modalClose", `Tab at the last modal control should wrap focus back to the first focusable control: ${JSON.stringify(result)}`);
+        assert(result.modalOpenAfterEscape === false, `Escape should close the mission modal: ${JSON.stringify(result)}`);
+        assert(result.modalAriaHidden === "true", `Closing the mission modal should restore aria-hidden=true: ${JSON.stringify(result)}`);
+        assert(result.restoredFocusMission === "mission-ethics" && result.restoredFocusRole === "button", `Closing the mission modal should restore focus to the launching mission card: ${JSON.stringify(result)}`);
+        return { name: "missionModalFocusManagementCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.focus('.mission-card[data-mission="mission-ethics"]');
+        await page.keyboard.press("Space");
+        await page.waitForFunction(() => document.getElementById("missionModal")?.classList.contains("open"));
+        const result = await page.evaluate(() => ({
+          modalOpen: document.getElementById("missionModal")?.classList.contains("open") || false,
+          modalAriaHidden: document.getElementById("missionModal")?.getAttribute("aria-hidden") || "",
+          modalTitle: document.getElementById("modalTitle")?.textContent || ""
+        }));
+        assert(result.modalOpen === true && result.modalAriaHidden === "false", `Space activation on a mission card should open the modal: ${JSON.stringify(result)}`);
+        assert(result.modalTitle.includes("灾难报道中的伦理抉择"), `Space activation on a mission card opened the wrong mission modal: ${JSON.stringify(result)}`);
+        return { name: "missionCardSpaceActivationCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.click('.mission-card[data-mission="mission-ethics"]');
+        await page.waitForFunction(() => document.getElementById("missionModal")?.classList.contains("open"));
+        const closeButtonResult = await page.evaluate(async () => {
+          document.getElementById("modalClose")?.click();
+          await new Promise(resolve => setTimeout(resolve, 20));
+          const modal = document.getElementById("missionModal");
+          return {
+            modalOpen: modal?.classList.contains("open") || false,
+            modalAriaHidden: modal?.getAttribute("aria-hidden") || "",
+            restoredFocusMission: document.activeElement?.getAttribute("data-mission") || "",
+            restoredFocusRole: document.activeElement?.getAttribute("role") || ""
+          };
+        });
+
+        await page.click('.mission-card[data-mission="mission-ethics"]');
+        await page.waitForFunction(() => document.getElementById("missionModal")?.classList.contains("open"));
+        const backdropResult = await page.evaluate(async () => {
+          document.getElementById("missionModal")?.click();
+          await new Promise(resolve => setTimeout(resolve, 20));
+          const modal = document.getElementById("missionModal");
+          return {
+            modalOpen: modal?.classList.contains("open") || false,
+            modalAriaHidden: modal?.getAttribute("aria-hidden") || "",
+            restoredFocusMission: document.activeElement?.getAttribute("data-mission") || "",
+            restoredFocusRole: document.activeElement?.getAttribute("role") || ""
+          };
+        });
+
+        assert(closeButtonResult.modalOpen === false && closeButtonResult.modalAriaHidden === "true", `Close button should close the mission modal: ${JSON.stringify(closeButtonResult)}`);
+        assert(closeButtonResult.restoredFocusMission === "mission-ethics" && closeButtonResult.restoredFocusRole === "button", `Close button should restore focus to the launching mission card: ${JSON.stringify(closeButtonResult)}`);
+        assert(backdropResult.modalOpen === false && backdropResult.modalAriaHidden === "true", `Backdrop click should close the mission modal: ${JSON.stringify(backdropResult)}`);
+        assert(backdropResult.restoredFocusMission === "mission-ethics" && backdropResult.restoredFocusRole === "button", `Backdrop click should restore focus to the launching mission card: ${JSON.stringify(backdropResult)}`);
+        return { name: "missionModalCloseControlsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const mission = MISSIONS.find((item) => item.id === missionId);
+          const buildSnapshot = () => ({
+            title: document.getElementById("modalTitle")?.textContent || "",
+            desc: document.getElementById("modalDesc")?.textContent || "",
+            badge: document.getElementById("modalBadge")?.textContent || "",
+            startLabel: document.getElementById("modalStartBtn")?.textContent || ""
+          });
+
+          localStorage.clear();
+          window.openMissionModal(missionId);
+          const notStarted = buildSnapshot();
+
+          window.saveProgress({
+            [missionId]: { _started: true, step0: true }
+          });
+          window.openMissionModal(missionId);
+          const inProgress = buildSnapshot();
+
+          const completedState = { _started: true };
+          mission?.steps?.forEach((_, index) => {
+            completedState["step" + index] = true;
+          });
+          window.saveProgress({
+            [missionId]: completedState
+          });
+          window.openMissionModal(missionId);
+          const completed = buildSnapshot();
+
+          return {
+            expectedTitle: `${mission?.emoji || ""} ${mission?.title || ""}`.trim(),
+            expectedDesc: mission?.desc || "",
+            expectedBadge: `${mission?.difficulty || ""} · ${mission?.time || ""}`.trim(),
+            notStarted,
+            inProgress,
+            completed
+          };
+        });
+        assert(result.notStarted.title === result.expectedTitle && result.inProgress.title === result.expectedTitle && result.completed.title === result.expectedTitle, `Mission modal title drifted from mission metadata across progress states: ${JSON.stringify(result)}`);
+        assert(result.notStarted.desc === result.expectedDesc && result.inProgress.desc === result.expectedDesc && result.completed.desc === result.expectedDesc, `Mission modal description drifted from mission metadata across progress states: ${JSON.stringify(result)}`);
+        assert(result.notStarted.badge === result.expectedBadge && result.inProgress.badge === result.expectedBadge && result.completed.badge === result.expectedBadge, `Mission modal badge drifted from mission metadata across progress states: ${JSON.stringify(result)}`);
+        assert(result.notStarted.startLabel === "🚀 开始任务", `Mission modal should invite the first launch when no steps are complete: ${JSON.stringify(result.notStarted)}`);
+        assert(result.inProgress.startLabel === "▶ 继续任务（第 2 步）", `Mission modal should point to the next incomplete step for in-progress missions: ${JSON.stringify(result.inProgress)}`);
+        assert(result.completed.startLabel === "↺ 重新打开第 1 步", `Mission modal should offer reopening from step 1 when all steps are complete: ${JSON.stringify(result.completed)}`);
+        return { name: "missionModalCopyStatesCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const mission = MISSIONS.find((item) => item.id === missionId);
+
+          localStorage.clear();
+          window.saveProgress({
+            [missionId]: { _started: true, step0: true }
+          });
+          window.openMissionModal(missionId);
+          const partial = {
+            firstStepDone: document.querySelector('#modalSteps .step-item:nth-child(1)')?.classList.contains("step-done") || false,
+            firstStepNum: document.querySelector('#modalSteps .step-item:nth-child(1) .step-num')?.textContent?.trim() || "",
+            firstStepLinkCount: document.querySelectorAll('#modalSteps .tool-link[data-step="0"]').length,
+            secondStepLinkCount: document.querySelectorAll('#modalSteps .tool-link[data-step="1"]').length
+          };
+
+          const completeState = { _started: true };
+          mission?.steps?.forEach((_, index) => {
+            completeState["step" + index] = true;
+          });
+          window.saveProgress({
+            [missionId]: completeState
+          });
+          window.openMissionModal(missionId);
+          const complete = {
+            doneCount: document.querySelectorAll('#modalSteps .step-item.step-done').length,
+            toolLinkCount: document.querySelectorAll('#modalSteps .tool-link').length
+          };
+
+          return {
+            totalSteps: mission?.steps?.length || 0,
+            partial,
+            complete
+          };
+        });
+        assert(result.partial.firstStepDone === true, `Completed steps in the mission modal should render with step-done styling: ${JSON.stringify(result.partial)}`);
+        assert(result.partial.firstStepNum === "✓", `Completed steps in the mission modal should replace the step number with a checkmark: ${JSON.stringify(result.partial)}`);
+        assert(result.partial.firstStepLinkCount === 0, `Completed mission-modal steps should not keep their open-tool links: ${JSON.stringify(result.partial)}`);
+        assert(result.partial.secondStepLinkCount === 1, `Incomplete mission-modal steps should still render their open-tool links: ${JSON.stringify(result.partial)}`);
+        assert(result.complete.doneCount === result.totalSteps, `Completed missions should render every mission-modal step as done: ${JSON.stringify(result.complete)}`);
+        assert(result.complete.toolLinkCount === 0, `Completed missions should remove all mission-modal tool links: ${JSON.stringify(result.complete)}`);
+        return { name: "missionModalStepRenderingCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const originalOpen = window.open;
+          let openedUrl = "";
+          window.open = (url) => {
+            openedUrl = String(url || "");
+            return { opener: null };
+          };
+
+          try {
+            window.saveProgress({
+              [missionId]: { _started: true, step0: true }
+            });
+            window.openMissionModal(missionId);
+            const beforeLabel = document.getElementById("modalStartBtn")?.textContent || "";
+            document.getElementById("modalStartBtn")?.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const progress = JSON.parse(localStorage.getItem("p00_mission_progress") || "{}");
+            return {
+              beforeLabel,
+              openedUrl,
+              missionState: progress[missionId] || {}
+            };
+          } finally {
+            window.open = originalOpen;
+          }
+        });
+        assert(result.beforeLabel === "▶ 继续任务（第 2 步）", `Mission modal start button should announce the next incomplete step before resuming: ${JSON.stringify(result)}`);
+        assert(result.openedUrl.endsWith("/P27-privacy-clause-highlighter/"), `Mission modal start button should open the next incomplete tool, not the first step again: ${JSON.stringify(result)}`);
+        assert(result.missionState.step0 === true && result.missionState.step1 === true, `Mission modal start button should mark the resumed step as complete after opening it: ${JSON.stringify(result)}`);
+        return { name: "missionModalStartResumesNextStepCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const mission = MISSIONS.find((item) => item.id === missionId);
+          const completeState = { _started: true };
+          mission?.steps?.forEach((_, index) => {
+            completeState["step" + index] = true;
+          });
+
+          const originalOpen = window.open;
+          let openedUrl = "";
+          window.open = (url) => {
+            openedUrl = String(url || "");
+            return { opener: null };
+          };
+
+          try {
+            window.saveProgress({
+              [missionId]: completeState
+            });
+            window.openMissionModal(missionId);
+            const beforeLabel = document.getElementById("modalStartBtn")?.textContent || "";
+            document.getElementById("modalStartBtn")?.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const progress = JSON.parse(localStorage.getItem("p00_mission_progress") || "{}");
+            return {
+              beforeLabel,
+              openedUrl,
+              missionState: progress[missionId] || {}
+            };
+          } finally {
+            window.open = originalOpen;
+          }
+        });
+        assert(result.beforeLabel === "↺ 重新打开第 1 步", `Completed mission modal start button should announce reopening from step 1: ${JSON.stringify(result)}`);
+        assert(result.openedUrl.endsWith("/P31-ethics-avg/"), `Completed mission modal start button should reopen the first step tool: ${JSON.stringify(result)}`);
+        assert(result.missionState.step0 === true && result.missionState.step1 === true && result.missionState.step2 === true, `Completed mission modal start button should not clear or corrupt the completed mission progress state: ${JSON.stringify(result)}`);
+        return { name: "missionModalStartReopensFirstStepCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const mission = MISSIONS.find((item) => item.id === missionId);
+          const totalSteps = mission?.steps?.length || 0;
+
+          function snapshot() {
+            const card = document.querySelector(`.mission-card[data-mission="${missionId}"]`);
+            const metaText = card?.querySelector(".mc-meta")?.textContent || "";
+            const progressFill = card?.querySelector(".mc-bar-fill");
+            return {
+              isComplete: card?.classList.contains("mc-complete") || false,
+              progressText: metaText.replace(/\s+/g, " "),
+              progressWidth: progressFill instanceof HTMLElement ? progressFill.style.width : ""
+            };
+          }
+
+          localStorage.clear();
+          window.refreshDashboard();
+          const empty = snapshot();
+
+          const partialState = { _started: true };
+          if (totalSteps > 0) {
+            partialState.step0 = true;
+          }
+          window.saveProgress({ [missionId]: partialState });
+          window.refreshDashboard();
+          const partial = snapshot();
+
+          const completeState = { _started: true };
+          mission?.steps?.forEach((_, index) => {
+            completeState["step" + index] = true;
+          });
+          window.saveProgress({ [missionId]: completeState });
+          window.refreshDashboard();
+          const complete = snapshot();
+
+          return { totalSteps, empty, partial, complete };
+        });
+        assert(result.empty.isComplete === false, `Fresh mission card should not render as complete: ${JSON.stringify(result.empty)}`);
+        assert(result.empty.progressText.includes(`0/${result.totalSteps} 步骤`), `Fresh mission card should show zero completed steps: ${JSON.stringify(result.empty)}`);
+        assert(result.empty.progressWidth === "0%", `Fresh mission card should start at 0% progress width: ${JSON.stringify(result.empty)}`);
+        assert(result.partial.isComplete === false, `Partial mission card should not render as complete: ${JSON.stringify(result.partial)}`);
+        assert(result.partial.progressText.includes(`1/${result.totalSteps} 步骤`), `Partial mission card should show one completed step: ${JSON.stringify(result.partial)}`);
+        assert(result.partial.progressWidth === `${Math.round((1 / result.totalSteps) * 100)}%`, `Partial mission card progress width mismatch: ${JSON.stringify(result.partial)}`);
+        assert(result.complete.isComplete === true, `Completed mission card should render with mc-complete styling: ${JSON.stringify(result.complete)}`);
+        assert(result.complete.progressText.includes(`${result.totalSteps}/${result.totalSteps} 步骤`), `Completed mission card should show all steps complete: ${JSON.stringify(result.complete)}`);
+        assert(result.complete.progressWidth === "100%", `Completed mission card should render 100% progress width: ${JSON.stringify(result.complete)}`);
+        return { name: "missionCardProgressStateCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.focus('.mission-card[data-mission="mission-ethics"]');
+        const result = await page.evaluate(() => {
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            "mission-ethics": { _started: true, step0: true }
+          }));
+          window.refreshDashboard();
+          return {
+            activeMission: document.activeElement?.getAttribute("data-mission") || "",
+            activeRole: document.activeElement?.getAttribute("role") || ""
+          };
+        });
+        assert(result.activeMission === "mission-ethics" && result.activeRole === "button", `Dashboard refresh should restore focus to the previously focused mission card: ${JSON.stringify(result)}`);
+        return { name: "pageFocusRestoreCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.click("#tabStats");
+        await page.focus("#tabStats");
+        const result = await page.evaluate(() => {
+          window.refreshDashboard();
+          return {
+            activeElementId: document.activeElement?.id || "",
+            statsSelected: document.getElementById("tabStats")?.getAttribute("aria-selected") || "",
+            statsTabIndex: document.getElementById("tabStats")?.tabIndex,
+            statsHidden: document.getElementById("panelStats")?.hidden
+          };
+        });
+        assert(result.activeElementId === "tabStats", `Dashboard refresh should restore focus to the previously focused active tab: ${JSON.stringify(result)}`);
+        assert(result.statsSelected === "true" && result.statsTabIndex === 0 && result.statsHidden === false, `Dashboard refresh should preserve the active stats tab state while restoring focus: ${JSON.stringify(result)}`);
+        return { name: "tabFocusRestoreCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          window.activateTab(document.getElementById("tabModules"));
+          await new Promise(resolve => setTimeout(resolve, 0));
+          const toolLink = document.querySelector('.tool-link[data-tool-id="P01"]');
+          if (toolLink instanceof HTMLElement) {
+            toolLink.focus();
+          }
+          window.refreshDashboard();
+          return {
+            activeElementToolId: document.activeElement?.getAttribute("data-tool-id") || "",
+            activeElementClass: document.activeElement?.className || "",
+            modulesSelected: document.getElementById("tabModules")?.getAttribute("aria-selected") || "",
+            modulesHidden: document.getElementById("panelModules")?.hidden
+          };
+        });
+        assert(result.activeElementToolId === "P01" && String(result.activeElementClass).includes("tool-link"), `Dashboard refresh should restore focus to the previously focused module tool link: ${JSON.stringify(result)}`);
+        assert(result.modulesSelected === "true" && result.modulesHidden === false, `Dashboard refresh should keep the modules panel active while restoring tool-link focus: ${JSON.stringify(result)}`);
+        return { name: "toolLinkFocusRestoreCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.click("#tabStats");
+        await page.focus("#exportBtn");
+        const result = await page.evaluate(() => {
+          window.refreshDashboard();
+          return {
+            activeElementId: document.activeElement?.id || "",
+            statsSelected: document.getElementById("tabStats")?.getAttribute("aria-selected") || "",
+            statsHidden: document.getElementById("panelStats")?.hidden
+          };
+        });
+        assert(result.activeElementId === "exportBtn", `Dashboard refresh should restore focus to the previously focused id-based control: ${JSON.stringify(result)}`);
+        assert(result.statsSelected === "true" && result.statsHidden === false, `Dashboard refresh should keep the stats panel active while restoring export button focus: ${JSON.stringify(result)}`);
+        return { name: "idFocusRestoreCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.focus('.footer a[href="https://github.com/Yuuqq"]');
+        const result = await page.evaluate(() => {
+          window.refreshDashboard();
+          return {
+            activeTag: document.activeElement?.tagName || "",
+            activeHref: document.activeElement?.getAttribute("href") || ""
+          };
+        });
+        assert(result.activeTag === "A" && result.activeHref === "https://github.com/Yuuqq", `Dashboard refresh should restore focus to the previously focused generic anchor: ${JSON.stringify(result)}`);
+        return { name: "anchorFocusRestoreCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await openEthicsModal(page);
+        await page.evaluate(() => {
+          const stepLink = document.querySelector('.tool-link[data-step="0"]');
+          if (stepLink instanceof HTMLElement) {
+            stepLink.focus();
+          }
+          window.refreshDashboard();
+        });
+        await sleep();
+        const result = await readMissionModalState(page);
+        assert(result.modalOpen === true, `Dashboard refresh should keep the mission modal open when currentMission is active: ${JSON.stringify(result)}`);
+        assert(result.activeStep === "0" && String(result.activeClass).includes("tool-link"), `Dashboard refresh should preserve focus within the modal via the step-link token: ${JSON.stringify(result)}`);
+        return { name: "modalFocusPreservationCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await openEthicsModal(page);
+        await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const progressKey = "p00_mission_progress";
+          const stepLink = document.querySelector('.tool-link[data-step="0"]');
+          if (stepLink instanceof HTMLElement) {
+            stepLink.focus();
+          }
+          localStorage.setItem(progressKey, JSON.stringify({
+            [missionId]: { _started: true, step0: true }
+          }));
+          window.refreshDashboard();
+        });
+        await sleep();
+        const result = await readMissionModalState(page);
+        assert(result.modalOpen === true, `Dashboard refresh should keep the mission modal open when the focused step link disappears: ${JSON.stringify(result)}`);
+        assert(result.activeElementId === "modalClose", `Dashboard refresh should fall back to the modal close button when the focused step link no longer exists: ${JSON.stringify(result)}`);
+        assert(result.startLabel.includes("继续任务（第 2 步）"), `Dashboard refresh did not re-render the modal start label after step completion removed the focused link: ${JSON.stringify(result)}`);
+        assert(result.completedStepCount === 1, `Dashboard refresh did not update modal step completion before resolving focus fallback: ${JSON.stringify(result)}`);
+        assert(result.firstStepLinkCount === 0, `Completed modal step should no longer expose its tool link after refresh: ${JSON.stringify(result)}`);
+        return { name: "modalFocusFallbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await openEthicsModal(pageB);
+        await pageB.focus('.tool-link[data-step="0"]');
+
+        await pageA.evaluate(() => {
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+        });
+
+        await sleep(150);
+        await waitForMissionModalFocusState(pageB, { activeStep: "0", startLabelIncludes: "开始任务" });
+        const result = await readMissionModalState(pageB);
+
+        assert(result.modalOpen === true, `Cross-tab refresh should keep the mission modal open while a focused step link remains valid: ${JSON.stringify(result)}`);
+        assert(result.activeStep === "0" && String(result.activeClass).includes("tool-link"), `Cross-tab refresh should preserve focus within the modal via the step-link token when the link still exists: ${JSON.stringify(result)}`);
+        assert(result.startLabel.includes("开始任务"), `Cross-tab refresh should not alter the mission modal progress copy when unrelated managed storage changes: ${JSON.stringify(result)}`);
+        return { name: "crossTabModalStepLinkPreservationCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await openEthicsModal(pageB);
+        await pageB.focus('.tool-link[data-step="0"]');
+
+        await setMissionProgress(pageA, ETHICS_STEP_0_PROGRESS);
+
+        await waitForMissionModalFocusState(pageB, { activeElementId: "modalClose", startLabelIncludes: "继续任务（第 2 步）" });
+        const result = await readMissionModalState(pageB);
+
+        assert(result.modalOpen === true, `Cross-tab refresh should keep the mission modal open when the focused step link disappears: ${JSON.stringify(result)}`);
+        assert(result.activeElementId === "modalClose", `Cross-tab refresh should fall back to the modal close button when the focused step link no longer exists after storage sync: ${JSON.stringify(result)}`);
+        assert(result.startLabel.includes("继续任务（第 2 步）"), `Cross-tab refresh did not re-render the modal start label after storage sync completed the focused step: ${JSON.stringify(result)}`);
+        assert(result.completedStepCount === 1, `Cross-tab refresh did not update modal completion state before resolving focus fallback: ${JSON.stringify(result)}`);
+        assert(result.firstStepLinkCount === 0, `Cross-tab refresh should remove the completed step link before resolving modal focus fallback: ${JSON.stringify(result)}`);
+        return { name: "crossTabModalStepLinkFallbackCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await openEthicsModal(pageB);
+        await pageB.focus("#modalResetBtn");
+
+        await setMissionProgress(pageA, ETHICS_STEP_0_PROGRESS);
+
+        await waitForMissionModalFocusState(pageB, { activeElementId: "modalResetBtn", startLabelIncludes: "继续任务（第 2 步）" });
+        const result = await readMissionModalState(pageB);
+
+        assert(result.modalOpen === true, `Cross-tab refresh should keep the mission modal open while currentMission is active: ${JSON.stringify(result)}`);
+        assert(result.activeElementId === "modalResetBtn", `Cross-tab refresh should preserve focus within the modal on stable controls: ${JSON.stringify(result)}`);
+        assert(result.startLabel.includes("继续任务（第 2 步）"), `Cross-tab refresh did not re-render modal progress state from the incoming storage update: ${JSON.stringify(result)}`);
+        assert(result.completedStepCount === 1, `Cross-tab refresh did not update the modal step completion state: ${JSON.stringify(result)}`);
+        return { name: "crossTabModalFocusPreservationCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await setMissionProgress(pageA, ETHICS_STEP_0_PROGRESS);
+        await waitForStatTools(pageB, 1);
+        await openEthicsModal(pageB, "继续任务（第 2 步）");
+        await pageB.focus("#modalResetBtn");
+
+        await pageA.evaluate(() => {
+          localStorage.clear();
+        });
+
+        await waitForMissionModalFocusState(pageB, { activeElementId: "modalResetBtn", startLabelIncludes: "开始任务" });
+        const result = await readMissionModalState(pageB);
+
+        assert(result.modalOpen === true, `Cross-tab clear should keep the mission modal open while currentMission is active: ${JSON.stringify(result)}`);
+        assert(result.activeElementId === "modalResetBtn", `Cross-tab clear should preserve focus within the modal on stable controls: ${JSON.stringify(result)}`);
+        assert(result.startLabel.includes("开始任务"), `Cross-tab clear did not reset the modal start label back to the empty progress state: ${JSON.stringify(result)}`);
+        assert(result.completedStepCount === 0, `Cross-tab clear did not remove completed modal steps after storage reset: ${JSON.stringify(result)}`);
+        assert(result.firstStepLinkCount === 1, `Cross-tab clear did not restore the first modal tool link after resetting progress: ${JSON.stringify(result)}`);
+        return { name: "crossTabModalClearResetCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await setCrossTabStoredTheme(pageA, pageB, "light");
+        await setCrossTabStoredTheme(pageA, pageB, "dark");
+
+        await assertCurrentThemeState(pageB, darkThemeExpectation(), "Cross-tab theme sync");
+        return { name: "crossTabThemeSyncCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await seedCrossTabDarkTheme(pageA, pageB);
+
+        await setCrossTabStoredTheme(pageA, pageB, null);
+
+        await assertCurrentThemeState(pageB, lightThemeExpectation(), "Cross-tab theme reset");
+        return { name: "crossTabThemeResetCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await seedCrossTabDarkTheme(pageA, pageB);
+
+        await pageA.evaluate(() => {
+          localStorage.clear();
+        });
+        await waitForTheme(pageB, "light");
+
+        await assertCurrentThemeState(pageB, lightThemeExpectation(null), "Cross-tab theme clear");
+        return { name: "crossTabThemeClearResetCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const pageA = await createReadyPage(context, origin);
+      const pageB = await createReadyPage(context, origin);
+      try {
+        await seedCrossTabDarkTheme(pageA, pageB);
+
+        await setCrossTabStoredTheme(pageA, pageB, "sepia");
+
+        await assertCurrentThemeState(pageB, lightThemeExpectation("sepia"), "Cross-tab invalid theme storage");
+        return { name: "crossTabInvalidThemeFallbackCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await reloadThemePage(page, { colorScheme: "light", storedTheme: "sepia" });
+        await assertCurrentThemeState(page, lightThemeExpectation("sepia"), "Startup invalid theme storage");
+        return { name: "startupInvalidThemeFallbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await reloadThemePage(page, { colorScheme: "light", storedTheme: "dark" });
+        await assertCurrentThemeState(page, darkThemeExpectation("dark"), "Startup stored theme");
+        return { name: "startupStoredThemeOverrideCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      await installUnreadableThemeStorage(context, "dark");
+      const page = await createReadyPage(context, origin);
+      try {
+        await reloadThemePage(page, { colorScheme: "light" });
+        await assertCurrentThemeState(page, lightThemeExpectation("__unreadable__"), "Startup unreadable theme storage");
+        return { name: "startupUnreadableThemeFallbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createNoMatchMediaPage(context, origin);
+      try {
+        await assertCurrentThemeState(page, lightThemeExpectation(null), "No-matchMedia startup");
+        return { name: "noMatchMediaStartupCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createNoMatchMediaPage(context, origin);
+      try {
+        await reloadThemePage(page, { storedTheme: "sepia" });
+        await assertCurrentThemeState(page, lightThemeExpectation("sepia"), "No-matchMedia invalid theme storage");
+        return { name: "noMatchMediaInvalidThemeFallbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      await installNoMatchMedia(context);
+      await installUnreadableThemeStorage(context, "dark");
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.reload({ waitUntil: "networkidle" });
+        await assertCurrentThemeState(page, lightThemeExpectation("__unreadable__"), "No-matchMedia unreadable theme storage");
+        return { name: "noMatchMediaUnreadableThemeFallbackCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createNoMatchMediaPage(context, origin);
+      try {
+        await reloadThemePage(page, { storedTheme: "dark" });
+        await assertCurrentThemeState(page, darkThemeExpectation("dark"), "No-matchMedia pinned theme");
+        return { name: "noMatchMediaPinnedThemeCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const { pageA, pageB } = await createNoMatchMediaPagePair(context, origin);
+      try {
+        await setCrossTabStoredTheme(pageA, pageB, "light");
+        await setCrossTabStoredTheme(pageA, pageB, "dark");
+
+        await assertCurrentThemeState(pageB, darkThemeExpectation("dark"), "No-matchMedia cross-tab theme sync");
+        return { name: "noMatchMediaCrossTabThemeSyncCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const { pageA, pageB } = await createNoMatchMediaPagePair(context, origin);
+      try {
+        await setCrossTabStoredTheme(pageA, pageB, "dark");
+        await setCrossTabStoredTheme(pageA, pageB, null);
+
+        await assertCurrentThemeState(pageB, lightThemeExpectation(null), "No-matchMedia cross-tab theme reset");
+        return { name: "noMatchMediaCrossTabThemeResetCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const { pageA, pageB } = await createNoMatchMediaPagePair(context, origin);
+      try {
+        await setStoredTheme(pageA, "dark");
+        await waitForTheme(pageB, "dark");
+
+        await pageA.evaluate(() => {
+          localStorage.clear();
+        });
+        await waitForTheme(pageB, "light");
+
+        await assertCurrentThemeState(pageB, lightThemeExpectation(null), "No-matchMedia cross-tab theme clear");
+        return { name: "noMatchMediaCrossTabClearCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const { pageA, pageB } = await createNoMatchMediaPagePair(context, origin);
+      try {
+        await setCrossTabStoredTheme(pageA, pageB, "dark");
+        await setCrossTabStoredTheme(pageA, pageB, "sepia");
+
+        await assertCurrentThemeState(pageB, lightThemeExpectation("sepia"), "No-matchMedia cross-tab invalid theme storage");
+        return { name: "noMatchMediaCrossTabInvalidThemeCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const { pageA, pageB } = await createPagePair(context, origin);
+      try {
+        await installThemeUnreadableProbe(pageB);
+        await setStoredTheme(pageA, "dark");
+        await pageB.waitForTimeout(150);
+
+        const { probe, state } = await readAndRestoreThemeUnreadableProbe(pageB);
+
+        assert(probe.themeWriteCount > 0, `Cross-tab unreadable theme storage should still trigger theme reapplication writes in the receiving tab: ${JSON.stringify({ probe, state })}`);
+        assertThemeUiState(state, lightThemeExpectation("__unreadable__"), "Cross-tab unreadable theme storage");
+        return { name: "crossTabUnreadableThemeFallbackCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const { pageA, pageB } = await createNoMatchMediaPagePair(context, origin);
+      try {
+        await installThemeUnreadableProbe(pageB);
+        await setStoredTheme(pageA, "dark");
+        await pageB.waitForTimeout(150);
+
+        const { probe, state } = await readAndRestoreThemeUnreadableProbe(pageB);
+
+        assert(probe.themeWriteCount > 0, `No-matchMedia cross-tab unreadable theme storage should still trigger theme reapplication writes in the receiving tab: ${JSON.stringify({ probe, state })}`);
+        assertThemeUiState(state, lightThemeExpectation("__unreadable__"), "No-matchMedia cross-tab unreadable theme storage");
+        return { name: "noMatchMediaCrossTabUnreadableThemeCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const { pageA, pageB } = await createPagePair(context, origin);
+      try {
+        await seedCrossTabDarkTheme(pageA, pageB, "light");
+
+        await installThemeWriteProbe(pageB);
+
+        await pageA.evaluate(() => {
+          localStorage.setItem("unrelated_theme_probe_key", "1");
+        });
+        await pageB.waitForTimeout(150);
+
+        const { probe, state } = await readAndRestoreThemeWriteProbe(pageB);
+
+        assert(probe.themeWriteCount === 0, `Cross-tab unrelated storage updates should not trigger dark-toggle theme writes: ${JSON.stringify({ probe, state })}`);
+        assertThemeUiState(state, darkThemeExpectation("dark"), "Cross-tab unrelated storage updates");
+        return { name: "crossTabThemeIgnoresUnrelatedStorageCase", status: "passed" };
+      } finally {
+        await pageA.close();
+        await pageB.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      await installSystemThemeMock(context, "light");
+      const page = await createReadyPage(context, origin);
+      try {
+        const before = await readThemeState(page);
+        await page.evaluate(() => {
+          window.__setMockSystemTheme?.("dark");
+        });
+        await waitForTheme(page, "dark");
+        const result = await readThemeState(page);
+        assert(before.theme === "light" && before.storedThemeRaw === null, `Mocked system-theme setup should start in light mode without a stored preference: ${JSON.stringify(before)}`);
+        assertThemeUiState(result, darkThemeExpectation(null), "System theme changes");
+        return { name: "systemThemeFollowCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      await installSystemThemeMock(context, "dark");
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await readThemeState(page);
+        assertThemeUiState(result, darkThemeExpectation(null), "Startup system dark theme");
+        return { name: "startupSystemDarkThemeCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      await installSystemThemeMock(context, "light", { legacyListener: true });
+      const page = await createReadyPage(context, origin);
+      try {
+        const before = await page.evaluate(() => window.__readMockSystemThemeRegistration?.() || null);
+        await page.evaluate(() => {
+          window.__setMockSystemTheme?.("dark");
+        });
+        await waitForTheme(page, "dark");
+        const result = await readThemeState(page);
+        const registration = await page.evaluate(() => window.__readMockSystemThemeRegistration?.() || null);
+        assert(before?.addEventListenerCount === 0 && before?.addListenerCount === 1, `Legacy system-theme setup should register exactly one addListener handler and no addEventListener handlers: ${JSON.stringify(before)}`);
+        assert(registration?.addEventListenerCount === 0 && registration?.addListenerCount === 1, `Legacy system-theme registration counts drifted after the mocked theme change: ${JSON.stringify(registration)}`);
+        assertThemeUiState(result, {
+          theme: "dark",
+          buttonLabel: "切换到亮色模式",
+          buttonPressed: "true",
+          storedThemeRaw: null
+        }, "Legacy addListener system theme changes");
+        return { name: "systemThemeLegacyListenerCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      await installSystemThemeMock(context, "light");
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.waitForSelector("#darkToggleBtn");
+        await page.click("#darkToggleBtn");
+        await waitForTheme(page, "dark");
+        await page.evaluate(() => {
+          window.__setMockSystemTheme?.("light");
+        });
+        await sleep();
+        const result = await readThemeState(page);
+        assertThemeUiState(result, {
+          theme: "dark",
+          buttonLabel: "切换到亮色模式",
+          buttonPressed: "true",
+          storedThemeRaw: "dark"
+        }, "Stored theme preferences");
+        return { name: "systemThemeIgnorePinnedCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const mission = MISSIONS.find((item) => item.id === "mission-ethics");
+          const stepTool = mission?.steps?.[0]?.tool || "";
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            "mission-ethics": { _started: true, step0: true }
+          }));
+          window.refreshDashboard();
+          const badge = document.querySelector(`.tool-link[data-tool-id="${stepTool}"]`)?.parentElement?.querySelector(".tool-restored, .tool-used");
+          return {
+            stepTool,
+            badgeText: badge?.textContent?.trim() || "",
+            badgeClass: badge?.className || "",
+            badgeLabel: badge?.getAttribute("aria-label") || "",
+            statTools: document.getElementById("statTools")?.textContent || ""
+          };
+        });
+        assert(result.stepTool.length > 0, `Mission step tool lookup failed: ${JSON.stringify(result)}`);
+        assert(result.badgeText === "↺ 已恢复", `Progress-only module badge should show restored status: ${JSON.stringify(result)}`);
+        assert(result.badgeClass.includes("tool-restored"), `Progress-only module badge should use restored styling: ${JSON.stringify(result)}`);
+        assert(result.badgeLabel === "已恢复：状态来自任务进度恢复", `Progress-only module badge aria-label mismatch: ${JSON.stringify(result)}`);
+        assert(result.statTools === "1", `Progress-only restored module state should still count the tool in hero stats: ${JSON.stringify(result)}`);
+        return { name: "moduleRestoredBadgeCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const mission = MISSIONS.find((item) => item.id === "mission-ethics");
+          const stepTool = mission?.steps?.[0]?.tool || "";
+          const slug = TOOL_SLUGS[stepTool];
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            "mission-ethics": { _started: true, step0: true }
+          }));
+          localStorage.setItem(`pm_metrics_events_${stepTool}-${slug}`, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: `${stepTool}-${slug}`,
+            project_cluster: "probe",
+            session_id: "module-badge",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.refreshDashboard();
+          const badge = document.querySelector(`.tool-link[data-tool-id="${stepTool}"]`)?.parentElement?.querySelector(".tool-restored, .tool-used");
+          return {
+            stepTool,
+            badgeText: badge?.textContent?.trim() || "",
+            badgeClass: badge?.className || "",
+            badgeLabel: badge?.getAttribute("aria-label") || "",
+            statTools: document.getElementById("statTools")?.textContent || ""
+          };
+        });
+        assert(result.stepTool.length > 0, `Mission step tool lookup failed for metric precedence case: ${JSON.stringify(result)}`);
+        assert(result.badgeText === "✓ 已用", `Metric-backed module badge should take precedence over restored status: ${JSON.stringify(result)}`);
+        assert(result.badgeClass.includes("tool-used"), `Metric-backed module badge should use used styling: ${JSON.stringify(result)}`);
+        assert(result.badgeLabel === "已用：已有工具事件记录", `Metric-backed module badge aria-label mismatch: ${JSON.stringify(result)}`);
+        assert(result.statTools === "1", `Metric-backed module badge case should count exactly one tool in hero stats: ${JSON.stringify(result)}`);
+        return { name: "moduleUsedBadgePrecedenceCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionCard = document.querySelector('.mission-card[data-mission="mission-ethics"]');
+          const moduleLink = document.querySelector('.tool-link[data-tool-id="P01"]');
+          return {
+            missionRole: missionCard?.getAttribute("role") || "",
+            missionTabIndex: missionCard instanceof HTMLElement ? missionCard.tabIndex : null,
+            missionHasPopup: missionCard?.getAttribute("aria-haspopup") || "",
+            missionLabel: missionCard?.getAttribute("aria-label") || "",
+            moduleHref: moduleLink?.getAttribute("href") || "",
+            moduleRel: moduleLink?.getAttribute("rel") || "",
+            moduleTarget: moduleLink?.getAttribute("target") || "",
+            moduleLabel: moduleLink?.getAttribute("aria-label") || "",
+            moduleText: moduleLink?.textContent?.trim() || ""
+          };
+        });
+        assert(result.missionRole === "button", `Mission card should expose button semantics: ${JSON.stringify(result)}`);
+        assert(result.missionTabIndex === 0, `Mission card should stay keyboard-focusable: ${JSON.stringify(result)}`);
+        assert(result.missionHasPopup === "dialog", `Mission card should advertise its dialog behavior via aria-haspopup: ${JSON.stringify(result)}`);
+        assert(result.missionLabel === "查看任务：灾难报道中的伦理抉择", `Mission card aria-label drifted from the rendered mission title: ${JSON.stringify(result)}`);
+        assert(result.moduleHref.endsWith("/P01-model-compare/"), `Module tool link href drifted from the slugged tool path: ${JSON.stringify(result)}`);
+        assert(result.moduleRel === "noopener noreferrer", `Module tool link should preserve rel=noopener noreferrer: ${JSON.stringify(result)}`);
+        assert(result.moduleTarget === "_blank", `Module tool link should still open in a new tab: ${JSON.stringify(result)}`);
+        assert(result.moduleLabel === "P01 多模型对比器，在新标签页打开", `Module tool link aria-label drifted from the rendered tool metadata: ${JSON.stringify(result)}`);
+        assert(result.moduleText === "P01 多模型对比器", `Module tool link text drifted from the rendered tool metadata: ${JSON.stringify(result)}`);
+        return { name: "interactiveSemanticsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const missionId = "mission-ethics";
+          const moduleName = "新闻伦理与实务";
+          const metricToolId = "P27";
+          const metricSlug = TOOL_SLUGS[metricToolId];
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true, step0: true }
+          }));
+          localStorage.setItem(`pm_metrics_events_${metricToolId}-${metricSlug}`, JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: `${metricToolId}-${metricSlug}`,
+            project_cluster: "probe",
+            session_id: "module-progress",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          // Duplicate the restored tool in metrics to verify module counts stay deduped by tool id.
+          localStorage.setItem("pm_metrics_events_P31", JSON.stringify([{
+            event_name: "page_view",
+            event_time: new Date().toISOString(),
+            project_id: "P31",
+            project_cluster: "probe",
+            session_id: "module-progress-duplicate",
+            app_version: "pm-v1",
+            page_path: "/"
+          }]));
+          window.refreshDashboard();
+          const card = Array.from(document.querySelectorAll(".module-card")).find((node) => node.querySelector("h3")?.textContent?.includes(moduleName));
+          const progressFill = card?.querySelector(".mod-progress-fill");
+          return {
+            descText: card?.querySelector(".mod-desc")?.textContent?.replace(/\s+/g, " ").trim() || "",
+            width: progressFill instanceof HTMLElement ? progressFill.style.width : ""
+          };
+        });
+        assert(result.descText.includes("(2/10 已涉及)"), `Module card should dedupe restored and metric-backed tools when computing the involved count: ${JSON.stringify(result)}`);
+        assert(result.width === "20%", `Module card progress width should reflect the deduped involved count within the module: ${JSON.stringify(result)}`);
+        return { name: "moduleCardProgressCountCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          window.refreshDashboard();
+          return {
+            statTools: document.getElementById("statTools")?.textContent || "",
+            barText: document.getElementById("barChart")?.textContent?.trim() || "",
+            barLabel: document.getElementById("barChart")?.getAttribute("aria-label") || "",
+            calText: document.getElementById("calChart")?.textContent?.trim() || "",
+            calLabel: document.getElementById("calChart")?.getAttribute("aria-label") || ""
+          };
+        });
+        assert(result.statTools === "0", `Self-metrics-only startup state should not count dashboard events as used tools: ${JSON.stringify(result)}`);
+        assert(result.barText === "当前仅记录到学习中枢自身事件，这些事件不会计入工具使用排行。", `Self-metrics-only bar chart empty-state text mismatch: ${JSON.stringify(result)}`);
+        assert(result.barLabel === "工具使用排行。当前仅记录到学习中枢自身事件，这些事件不会计入工具使用排行。", `Self-metrics-only bar chart aria-label mismatch: ${JSON.stringify(result)}`);
+        assert(result.calText === "当前仅记录到学习中枢自身事件，这些事件不会计入活跃日历。", `Self-metrics-only calendar empty-state text mismatch: ${JSON.stringify(result)}`);
+        assert(result.calLabel === "过去 90 天活跃日历。当前仅记录到学习中枢自身事件，这些事件不会计入活跃日历。", `Self-metrics-only calendar aria-label mismatch: ${JSON.stringify(result)}`);
+        return { name: "statsSelfMetricsOnlyEmptyStateCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          window.pmMetrics.track("cta_click", { control_id: "probe" });
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            "mission-ethics": { _started: true, step0: true }
+          }));
+          window.refreshDashboard();
+          return {
+            statTools: document.getElementById("statTools")?.textContent || "",
+            barText: document.getElementById("barChart")?.textContent?.trim() || "",
+            barLabel: document.getElementById("barChart")?.getAttribute("aria-label") || "",
+            calText: document.getElementById("calChart")?.textContent?.trim() || "",
+            calLabel: document.getElementById("calChart")?.getAttribute("aria-label") || ""
+          };
+        });
+        assert(result.statTools === "1", `Restored-progress state should count tool usage derived from mission progress: ${JSON.stringify(result)}`);
+        assert(result.barText === "已恢复任务/工具进度，但暂无工具事件历史；学习中枢自身事件不会计入使用排行。", `Restored-progress bar chart empty-state text mismatch: ${JSON.stringify(result)}`);
+        assert(result.barLabel === "工具使用排行。已恢复任务或工具进度，但暂无工具事件历史；学习中枢自身事件不会计入使用排行。", `Restored-progress bar chart aria-label mismatch: ${JSON.stringify(result)}`);
+        assert(result.calText === "已恢复进度，但暂无工具事件日期历史；学习中枢自身事件不会计入活跃日历。", `Restored-progress calendar empty-state text mismatch: ${JSON.stringify(result)}`);
+        assert(result.calLabel === "过去 90 天活跃日历。已恢复进度，但暂无工具事件日期历史；学习中枢自身事件不会计入活跃日历。", `Restored-progress calendar aria-label mismatch: ${JSON.stringify(result)}`);
+        return { name: "statsRestoredProgressEmptyStateCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalSetItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "pm_metrics_events_P00-dashboard") {
+            return;
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      });
+      const response = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+      assert(response && response.status() === 200, `Unexpected HTTP status: ${response ? response.status() : "none"}`);
+      await page.waitForFunction(() => !!window.pmMetrics && typeof window.ensureMissionStarted === "function");
+      try {
+        const result = await page.evaluate(() => {
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            "mission-ethics": { _started: true, step0: true }
+          }));
+          window.refreshDashboard();
+          return {
+            statTools: document.getElementById("statTools")?.textContent || "",
+            barText: document.getElementById("barChart")?.textContent?.trim() || "",
+            barLabel: document.getElementById("barChart")?.getAttribute("aria-label") || "",
+            calText: document.getElementById("calChart")?.textContent?.trim() || "",
+            calLabel: document.getElementById("calChart")?.getAttribute("aria-label") || ""
+          };
+        });
+        assert(result.statTools === "1", `Restored-progress no-self-metrics state should count tool usage derived from mission progress: ${JSON.stringify(result)}`);
+        assert(result.barText === "已恢复任务/工具进度，但暂无工具事件历史，暂时无法生成使用排行。", `Restored-progress no-self-metrics bar chart empty-state text mismatch: ${JSON.stringify(result)}`);
+        assert(result.barLabel === "工具使用排行。已恢复任务或工具进度，但暂无工具事件历史，暂时无法生成使用排行。", `Restored-progress no-self-metrics bar chart aria-label mismatch: ${JSON.stringify(result)}`);
+        assert(result.calText === "已恢复进度，但暂无带日期的工具事件历史，活跃日历尚无法生成。", `Restored-progress no-self-metrics calendar empty-state text mismatch: ${JSON.stringify(result)}`);
+        assert(result.calLabel === "过去 90 天活跃日历。已恢复进度，但暂无带日期的工具事件历史。", `Restored-progress no-self-metrics calendar aria-label mismatch: ${JSON.stringify(result)}`);
+        return { name: "statsRestoredProgressWithoutSelfMetricsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const toolId = "P01";
+          const slug = TOOL_SLUGS[toolId];
+          const projectId = `${toolId}-${slug}`;
+          const baseNoon = new Date();
+          baseNoon.setHours(12, 0, 0, 0);
+          const days = [3, 2, 1].map((offset) => {
+            const next = new Date(baseNoon);
+            next.setDate(next.getDate() - offset);
+            return next;
+          });
+          localStorage.clear();
+          localStorage.setItem(`pm_metrics_events_${projectId}`, JSON.stringify(days.map((date, index) => ({
+            event_name: "cta_click",
+            control_id: `stats-${index}`,
+            event_time: date.toISOString(),
+            project_id: projectId,
+            project_cluster: "probe",
+            session_id: "stats-history",
+            app_version: "pm-v1",
+            page_path: "/"
+          }))));
+          window.refreshDashboard();
+          const barRows = Array.from(document.querySelectorAll("#barChart .bar-row")).map((row) => row.getAttribute("aria-label") || "");
+          const calCells = Array.from(document.querySelectorAll("#calChart .cal-cell")).map((cell) => cell.getAttribute("aria-label") || "");
+          return {
+            barLabel: document.getElementById("barChart")?.getAttribute("aria-label") || "",
+            barRows,
+            calLabel: document.getElementById("calChart")?.getAttribute("aria-label") || "",
+            calCellCount: calCells.length,
+            calCells,
+            expectedDays: days.map((date) => formatLocalDateKey(date))
+          };
+        });
+        assert(result.barLabel === "工具使用排行", `Non-empty stats bar chart aria-label mismatch: ${JSON.stringify(result)}`);
+        assert(result.barRows.length >= 1 && result.barRows[0].startsWith("P01 "), `Non-empty stats bar chart should expose the top tool row label: ${JSON.stringify(result)}`);
+        assert(result.barRows[0].endsWith("，3 次事件"), `Non-empty stats bar chart top row should report the tool event count: ${JSON.stringify(result)}`);
+        assert(result.calLabel.startsWith("过去 90 天活跃日历。最近活跃："), `Non-empty stats calendar aria-label summary prefix mismatch: ${JSON.stringify(result)}`);
+        result.expectedDays.forEach((day) => {
+          assert(result.calLabel.includes(day), `Non-empty stats calendar summary is missing active day ${day}: ${JSON.stringify(result)}`);
+          assert(result.calCells.includes(`${day}: 1 次事件`), `Non-empty stats calendar is missing the active-day cell label for ${day}: ${JSON.stringify(result)}`);
+        });
+        assert(result.calCellCount === 90, `Non-empty stats calendar should still render 90 day cells: ${JSON.stringify(result)}`);
+        return { name: "statsPositiveRenderingCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(() => {
+          const mission = MISSIONS.find((item) => item.id === "mission-ethics");
+          const missionProgress = { _started: true };
+          const completedTools = new Set();
+          mission?.steps?.forEach((step, index) => {
+            missionProgress["step" + index] = true;
+            completedTools.add(step.tool);
+          });
+
+          const toolId = "P11";
+          const slug = TOOL_SLUGS[toolId];
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            "mission-ethics": missionProgress
+          }));
+          localStorage.setItem("pm_metrics_events_P00-dashboard", JSON.stringify([
+            {
+              event_name: "page_view",
+              event_time: new Date(Date.now() - 5000).toISOString(),
+              project_id: "P00-dashboard",
+              project_cluster: "学习中枢",
+              session_id: "hero-self",
+              app_version: "pm-v1",
+              page_path: "/"
+            },
+            {
+              event_name: "page_hidden",
+              event_time: new Date(Date.now() - 4000).toISOString(),
+              project_id: "P00-dashboard",
+              project_cluster: "学习中枢",
+              session_id: "hero-self",
+              app_version: "pm-v1",
+              page_path: "/",
+              dwell_ms: 1000
+            }
+          ]));
+          localStorage.setItem(`pm_metrics_events_${toolId}-${slug}`, JSON.stringify([
+            {
+              event_name: "page_view",
+              event_time: new Date(Date.now() - 3000).toISOString(),
+              project_id: `${toolId}-${slug}`,
+              project_cluster: "probe",
+              session_id: "hero-tool",
+              app_version: "pm-v1",
+              page_path: "/"
+            },
+            {
+              event_name: "page_hidden",
+              event_time: new Date(Date.now() - 2000).toISOString(),
+              project_id: `${toolId}-${slug}`,
+              project_cluster: "probe",
+              session_id: "hero-tool",
+              app_version: "pm-v1",
+              page_path: "/",
+              dwell_ms: 2000
+            }
+          ]));
+          window.refreshDashboard();
+          return {
+            expectedTools: completedTools.size + 1,
+            statModules: document.getElementById("statModules")?.textContent || "",
+            statTasks: document.getElementById("statTasks")?.textContent || "",
+            statTools: document.getElementById("statTools")?.textContent || "",
+            statDwell: document.getElementById("statDwell")?.textContent || ""
+          };
+        });
+        assert(result.statModules === "2", `Hero modules-started count drifted from combined progress/metric state: ${JSON.stringify(result)}`);
+        assert(result.statTasks === "1", `Hero completed-task count drifted from completed mission state: ${JSON.stringify(result)}`);
+        assert(result.statTools === String(result.expectedTools), `Hero used-tools count drifted from combined progress/metric state: ${JSON.stringify(result)}`);
+        assert(result.statDwell === "3s", `Hero dwell summary drifted from aggregated dashboard/tool dwell events: ${JSON.stringify(result)}`);
+        return { name: "heroStatsAggregationCase", status: "passed" };
+      } finally {
+        await page.close();
       }
     }));
 
@@ -789,16 +2778,21 @@ async function run() {
         await context.setOffline(true);
         await page.reload({ waitUntil: "domcontentloaded" });
         await page.waitForFunction(() => document.querySelector(".hero h1")?.textContent?.includes("新闻素养学习中枢"));
-        const result = await page.evaluate(async () => {
+        const result = await page.evaluate(async (assets) => {
           const beforeTheme = document.documentElement.getAttribute("data-theme") || "";
           document.getElementById("darkToggleBtn")?.click();
           const afterTheme = document.documentElement.getAttribute("data-theme") || "";
           window.showToast("离线提示可用", "info", 0);
-          const styleResponse = await fetch("./styles.css");
-          const darkToggleResponse = await fetch("./shared/dark-toggle.js");
-          const toastResponse = await fetch("./shared/toast.js");
+          const assetFetches = {};
+          for (const asset of assets) {
+            const response = await fetch(asset);
+            assetFetches[asset] = {
+              ok: response.ok,
+              status: response.status,
+              bytes: (await response.arrayBuffer()).byteLength
+            };
+          }
           const manifestResponse = await fetch("./manifest.json");
-          const iconResponse = await fetch("./icon-192.png");
           const manifest = manifestResponse.ok ? await manifestResponse.json() : null;
           return {
             title: document.title,
@@ -807,32 +2801,24 @@ async function run() {
             themeBefore: beforeTheme,
             themeAfter: afterTheme,
             toastPresent: !!document.querySelector("#toastContainer > [role='status']"),
-            styleOk: styleResponse.ok,
-            styleStatus: styleResponse.status,
-            darkToggleOk: darkToggleResponse.ok,
-            darkToggleStatus: darkToggleResponse.status,
-            toastOk: toastResponse.ok,
-            toastStatus: toastResponse.status,
+            assetFetches,
             manifestOk: manifestResponse.ok,
             manifestStatus: manifestResponse.status,
             manifestName: manifest?.name || "",
-            manifestIcon: manifest?.icons?.[0]?.src || "",
-            iconOk: iconResponse.ok,
-            iconStatus: iconResponse.status,
-            iconBytes: (await iconResponse.arrayBuffer()).byteLength
+            manifestIcon: manifest?.icons?.[0]?.src || ""
           };
-        });
+        }, OFFLINE_FETCH_ASSETS);
         assert(result.title === "新闻素养学习中枢", `Offline reload title mismatch: ${result.title}`);
         assert(result.heroText.includes("新闻素养学习中枢"), `Offline reload hero mismatch: ${result.heroText}`);
-        assert(result.styleOk && result.styleStatus === 200, `Offline stylesheet fetch failed: ${JSON.stringify(result)}`);
         assert(result.darkTogglePresent === true, `Offline shell did not initialize shared dark-toggle UI: ${JSON.stringify(result)}`);
         assert(result.themeBefore !== result.themeAfter, `Offline dark-toggle interaction did not update theme state: ${JSON.stringify(result)}`);
         assert(result.toastPresent === true, `Offline toast UI did not render after reload: ${JSON.stringify(result)}`);
-        assert(result.darkToggleOk && result.darkToggleStatus === 200, `Offline dark-toggle script fetch failed: ${JSON.stringify(result)}`);
-        assert(result.toastOk && result.toastStatus === 200, `Offline toast script fetch failed: ${JSON.stringify(result)}`);
         assert(result.manifestOk && result.manifestStatus === 200, `Offline manifest fetch failed: ${JSON.stringify(result)}`);
         assert(result.manifestName === "新闻素养学习中枢" && result.manifestIcon === "./icon-192.png", `Offline manifest contents were not cached correctly: ${JSON.stringify(result)}`);
-        assert(result.iconOk && result.iconStatus === 200 && result.iconBytes > 0, `Offline app icon fetch failed: ${JSON.stringify(result)}`);
+        OFFLINE_FETCH_ASSETS.forEach((asset) => {
+          const info = result.assetFetches?.[asset];
+          assert(!!info && info.ok && info.status === 200 && info.bytes > 0, `Offline core asset fetch failed for ${asset}: ${JSON.stringify(result)}`);
+        });
         return { name: "offlineShellCase", status: "passed" };
       } finally {
         await context.setOffline(false);
@@ -1903,6 +3889,46 @@ async function run() {
       try {
         const result = await page.evaluate(async () => {
           const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.showToast("旧提示", "success", 3000, { track: false });
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalConfirm = window.confirm;
+          const originalReplaceToasts = window.replaceToasts;
+          window.confirm = () => true;
+          window.replaceToasts = undefined;
+          try {
+            document.getElementById("clearBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              eventNames: events.map(event => event.event_name + (event.control_id ? ":" + event.control_id : "")),
+              clearInfoSignalCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "当前没有可清除的学习数据"
+              ).length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.confirm = originalConfirm;
+            window.replaceToasts = originalReplaceToasts;
+          }
+        });
+        assert(result.eventNames.join(",") === "page_view,cta_click:probe", `Empty clear fallback should not resurrect pre-clear toast signals on later interaction: ${JSON.stringify(result)}`);
+        assert(result.clearInfoSignalCount === 0, `Empty clear fallback info toast should remain untracked: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Empty clear fallback should leave exactly one visible info toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "clearButtonEmptyFallbackWithoutReplaceToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
           const progressKey = "p00_mission_progress";
           localStorage.clear();
           localStorage.setItem(progressKey, JSON.stringify({
@@ -2296,6 +4322,53 @@ async function run() {
       try {
         await page.evaluate(() => {
           localStorage.clear();
+          window.confirm = () => true;
+          window.showToast("学习数据已导出", "success", 3000);
+          window.__pmOriginalReplaceToasts = window.replaceToasts;
+          window.replaceToasts = undefined;
+        });
+        try {
+          await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1, VISIBLE_TOAST_SELECTOR);
+          await page.setInputFiles("#importInput", {
+            name: "import.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify({
+              p00_mission_progress: JSON.stringify({
+                "mission-ethics": { _started: true }
+              })
+            }))
+          });
+          await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("已导入 1 条学习数据"));
+          const result = await page.evaluate(() => {
+            const eventsKey = "pm_metrics_events_P00-dashboard";
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          });
+          assert(result.statusTexts.join("|") === "已导入 1 条学习数据", `Import success fallback should replace the prior tracked toast with the imported success signal after storage restore: ${JSON.stringify(result)}`);
+          assert(result.ctaClickCount === 1, `Import success fallback toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+          assert(result.visibleToastCount === 1, `Import success fallback should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+          return { name: "importInputFallbackWithoutReplaceToastsCase", status: "passed" };
+        } finally {
+          await page.evaluate(() => {
+            window.replaceToasts = window.__pmOriginalReplaceToasts;
+            delete window.__pmOriginalReplaceToasts;
+          });
+        }
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
           window.confirm = () => false;
           window.showToast("学习数据已导出", "success", 3000);
         });
@@ -2331,6 +4404,60 @@ async function run() {
         assert(result.progressRaw === null, `Cancelled import should not modify stored progress: ${JSON.stringify(result)}`);
         assert(result.visibleToastCount === 1, `Cancelled import should leave exactly one visible info toast after clearing stale toasts: ${JSON.stringify(result)}`);
         return { name: "importCancelDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
+          window.confirm = () => false;
+          window.showToast("学习数据已导出", "success", 3000);
+          window.__pmOriginalReplaceToasts = window.replaceToasts;
+          window.replaceToasts = undefined;
+        });
+        try {
+          await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1, VISIBLE_TOAST_SELECTOR);
+          await page.setInputFiles("#importInput", {
+            name: "cancelled-import.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify({
+              p00_mission_progress: JSON.stringify({
+                "mission-ethics": { _started: true }
+              })
+            }))
+          });
+          await page.waitForFunction(() => document.querySelector("#toastContainer")?.textContent?.includes("已取消导入"));
+          const result = await page.evaluate(() => {
+            const eventsKey = "pm_metrics_events_P00-dashboard";
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "学习数据已导出").length,
+              cancelSignalCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "已取消导入"
+              ).length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              progressRaw: localStorage.getItem("p00_mission_progress"),
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          });
+          assert(result.priorToastCount === 1, `Cancelled import fallback should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+          assert(result.cancelSignalCount === 0, `Cancelled import fallback info toast should remain untracked: ${JSON.stringify(result)}`);
+          assert(result.ctaClickCount === 1, `Cancelled import fallback toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+          assert(result.progressRaw === null, `Cancelled import fallback should not modify stored progress: ${JSON.stringify(result)}`);
+          assert(result.visibleToastCount === 1, `Cancelled import fallback should leave exactly one visible info toast after clearing stale toasts: ${JSON.stringify(result)}`);
+          return { name: "importCancelFallbackWithoutReplaceToastsCase", status: "passed" };
+        } finally {
+          await page.evaluate(() => {
+            window.replaceToasts = window.__pmOriginalReplaceToasts;
+            delete window.__pmOriginalReplaceToasts;
+          });
+        }
       } finally {
         await page.close();
       }
@@ -3642,14 +5769,15 @@ async function run() {
             window.refreshDashboard();
             return {
               totalEvents: document.getElementById("sTotalEvents")?.textContent || "",
-              toolsUsed: document.getElementById("sToolsUsed")?.textContent || ""
+              toolsUsed: document.getElementById("sToolsUsed")?.textContent || "",
+              toolCount: MODULES.flatMap((module) => module.tools.map((tool) => tool.id)).length
             };
           } finally {
             Storage.prototype.setItem = originalSetItem;
           }
         });
         assert(result.totalEvents === "1", `Grouped metrics entries still double-counted duplicate legacy/canonical events: ${result.totalEvents}`);
-        assert(result.toolsUsed === "1/50", `Grouped metrics entries changed tool-used counting unexpectedly: ${result.toolsUsed}`);
+        assert(result.toolsUsed === `1/${result.toolCount}`, `Grouped metrics entries changed tool-used counting unexpectedly: ${result.toolsUsed}`);
         return { name: "legacyMetricStatsDedupeCase", status: "passed" };
       } finally {
         await page.close();
@@ -3974,6 +6102,43 @@ async function run() {
         assert(result.ctaClickCount === 1, `Successful reset toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
         assert(result.visibleToastCount === 1, `Successful reset should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
         return { name: "missionResetDropsPriorToastsCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          window.ensureMissionStarted("mission-ethics");
+          window.openMissionModal("mission-ethics");
+          window.showToast("学习数据已导出", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalReplaceToasts = window.replaceToasts;
+          window.replaceToasts = undefined;
+          try {
+            document.getElementById("modalResetBtn").click();
+            await new Promise(resolve => setTimeout(resolve, 20));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              statusTexts: events.filter(event => event.event_name === "status_success_signal").map(event => event.status_text),
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.replaceToasts = originalReplaceToasts;
+          }
+        });
+        assert(result.statusTexts.filter(text => text === "学习数据已导出").length === 1, `Successful reset fallback should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.statusTexts.filter(text => text === "任务进度已重置").length === 1, `Successful reset fallback should record exactly one reset success signal: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Successful reset fallback toast replacement should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Successful reset fallback should leave exactly one visible outcome toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "missionResetFallbackWithoutReplaceToastsCase", status: "passed" };
       } finally {
         await page.close();
       }
@@ -4569,6 +6734,60 @@ async function run() {
         });
         assert(result.toastText === "当前浏览器存储存在异常任务标记，任务恢复可能不完整。", `Unreadable mission-marker warning toast mismatch: ${JSON.stringify(result)}`);
         return { name: "unreadableMissionMarkerWarningCase", status: "passed" };
+      } finally {
+        await page.close();
+      }
+    }));
+
+    results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
+      const page = await createReadyPage(context, origin);
+      try {
+        const result = await page.evaluate(async () => {
+          const missionId = "mission-ethics";
+          const taskKey = "pm_metrics_task_start_P00-dashboard::dashboard_mission_mission_ethics";
+          const eventsKey = "pm_metrics_events_P00-dashboard";
+          localStorage.clear();
+          localStorage.setItem("p00_mission_progress", JSON.stringify({
+            [missionId]: { _started: true }
+          }));
+          localStorage.setItem(taskKey, String(Date.now() - 2000));
+          window.showToast("旧提示", "success", 3000);
+          await new Promise(resolve => setTimeout(resolve, 20));
+
+          const originalReplaceToasts = window.replaceToasts;
+          const originalGetItem = Storage.prototype.getItem;
+          window.replaceToasts = undefined;
+          Storage.prototype.getItem = function (key) {
+            if (key === taskKey) {
+              throw new Error("forced unreadable mission marker");
+            }
+            return originalGetItem.call(this, key);
+          };
+
+          try {
+            window.refreshDashboard();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            window.pmMetrics.track("cta_click", { control_id: "probe" });
+            const events = JSON.parse(localStorage.getItem(eventsKey) || "[]");
+            return {
+              priorToastCount: events.filter(event => event.event_name === "status_success_signal" && event.status_text === "旧提示").length,
+              warningSignalCount: events.filter(event =>
+                (event.event_name === "status_success_signal" || event.event_name === "status_error_signal")
+                && event.status_text === "当前浏览器存储存在异常任务标记，任务恢复可能不完整。"
+              ).length,
+              ctaClickCount: events.filter(event => event.event_name === "cta_click" && event.control_id === "probe").length,
+              visibleToastCount: document.querySelectorAll("#toastContainer > [role='status'], #toastContainer > [role='alert']").length
+            };
+          } finally {
+            window.replaceToasts = originalReplaceToasts;
+            Storage.prototype.getItem = originalGetItem;
+          }
+        });
+        assert(result.priorToastCount === 1, `Unreadable mission-marker warning fallback should not duplicate the prior tracked toast on later interaction: ${JSON.stringify(result)}`);
+        assert(result.warningSignalCount === 0, `Unreadable mission-marker warning fallback should keep the warning toast untracked: ${JSON.stringify(result)}`);
+        assert(result.ctaClickCount === 1, `Unreadable mission-marker warning fallback should not break later tracked events: ${JSON.stringify(result)}`);
+        assert(result.visibleToastCount === 1, `Unreadable mission-marker warning fallback should leave exactly one visible warning toast after clearing stale toasts: ${JSON.stringify(result)}`);
+        return { name: "unreadableMissionMarkerWarningFallbackWithoutReplaceToastsCase", status: "passed" };
       } finally {
         await page.close();
       }
