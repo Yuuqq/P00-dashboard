@@ -4,7 +4,10 @@
   "version": "0.0.0",
   "description": "新闻素养学习中枢本地回归检查入口",
   "scripts": {
-    "check": "node --check app.js && node --check pm-metrics.js && node --check sw.js && node --check scripts/regression-check.mjs",
-    "regression": "node scripts/regression-check.mjs"
+    "syntax": "node --check app.js && node --check pm-metrics.js && node --check sw.js && node --check shared/toast.js && node --check shared/dark-toggle.js && node --check scripts/regression-check.mjs && node --check scripts/static-check.mjs",
+    "static": "node scripts/static-check.mjs",
+    "check": "npm run syntax && npm run static",
+    "browser": "node scripts/regression-check.mjs",
+    "regression": "npm run static && npm run browser"
   }
 }

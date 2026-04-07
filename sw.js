@@ -9,6 +9,8 @@
  */
 const CACHE_PREFIX = "journalism-tool-p00-";
 const CACHE_NAME = CACHE_PREFIX + "v2";
+// Keep this as a flat quoted array; regression-check.mjs parses it to verify
+// that offline core assets stay in sync with index.html and manifest.json.
 const CORE_ASSETS = [
   "./",
   "./index.html",

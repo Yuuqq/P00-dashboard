@@ -75,12 +75,21 @@
     metas.slice(1).forEach(meta => meta.remove());
   }
 
+  function syncToggleButton(btn, theme) {
+    if (!btn) return;
+    btn.textContent = theme === "dark" ? "☀️" : "🌙";
+    btn.setAttribute("aria-label", theme === "dark" ? "切换到亮色模式" : "切换到暗色模式");
+    btn.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
+  }
+
   function applyTheme(theme, options) {
     const persist = options?.persist === true;
     document.documentElement.setAttribute("data-theme", theme);
     document.documentElement.style.colorScheme = theme;
     if (persist && !safeSetTheme(theme)) {
-      if (typeof window.replaceToasts === "function") {
+      if (typeof window.showFreshToast === "function") {
+        window.showFreshToast("主题偏好未写入浏览器存储，刷新后将恢复系统外观。", "warn", 4500);
+      } else if (typeof window.replaceToasts === "function") {
         window.replaceToasts("主题偏好未写入浏览器存储，刷新后将恢复系统外观。", "warn", 4500);
       } else {
         window.clearToasts?.();
@@ -90,11 +99,7 @@
     }
     syncThemeColor(theme);
     const btn = document.getElementById("darkToggleBtn");
-    if (btn) {
-      btn.textContent = theme === "dark" ? "☀️" : "🌙";
-      btn.setAttribute("aria-label", theme === "dark" ? "切换到亮色模式" : "切换到暗色模式");
-      btn.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
-    }
+    syncToggleButton(btn, theme);
   }
 
   function createToggle() {
@@ -110,7 +115,7 @@
       "box-shadow:0 2px 8px rgba(0,0,0,0.15)", "transition:all .2s ease",
       "line-height:1", "padding:0"
     ].join(";");
-    btn.setAttribute("aria-pressed", document.documentElement.getAttribute("data-theme") === "dark" ? "true" : "false");
+    syncToggleButton(btn, document.documentElement.getAttribute("data-theme") || getPreferred());
     btn.addEventListener("mouseenter", function() { btn.style.transform = "scale(1.1)"; });
     btn.addEventListener("mouseleave", function() { btn.style.transform = "scale(1)"; });
     btn.addEventListener("click", function () {

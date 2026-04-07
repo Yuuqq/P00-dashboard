@@ -143,6 +143,11 @@ const MISSIONS = [
   }
 ];
 const MISSION_STEP_COUNTS = new Map(MISSIONS.map(mission => [mission.id, mission.steps.length]));
+const CATALOG_MODULE_COUNT = MODULES.length;
+// Visible catalog copy should reflect the rendered module entries even if
+// catalog integrity regresses; duplicate/unknown ids are enforced separately.
+const CATALOG_TOOL_COUNT = MODULES.flatMap(module => module.tools).length;
+const CATALOG_MISSION_COUNT = MISSIONS.length;
 
 // ===== 进度持久化 =====
 const DASHBOARD_PROJECT_ID = "P00";
@@ -1211,15 +1216,15 @@ function notifyProgressSaveFailure() {
   showFreshToast("保存学习进度失败，当前更改未写入浏览器存储。", "error", 4500);
 }
 
-function showFreshToast(message, type, duration, options) {
-  if (typeof window.replaceToasts === "function") {
-    window.replaceToasts(message, type, duration, options);
+const showFreshToast = (message, type, duration, options) => {
+  if (typeof window.showFreshToast === "function") {
+    window.showFreshToast(message, type, duration, options);
     return;
   }
   window.clearToasts?.();
   window.pmMetrics?.reconcileStorageState?.({ resetPendingStatus: true, suppressActiveStatus: true });
   window.showToast?.(message, type, duration, options);
-}
+};
 
 function getMissionProgressState(progress, missionId, options) {
   const create = options?.create === true;
@@ -1642,6 +1647,43 @@ function validateCatalogIntegrity() {
   });
 }
 
+// Keep source placeholders and runtime copy aligned with the catalog.
+// regression-check.mjs asserts both the raw index.html text and the live DOM.
+function syncCatalogCopy() {
+  const heroSubtitle = document.getElementById("heroSubtitle");
+  if (heroSubtitle) {
+    heroSubtitle.textContent = `${CATALOG_MODULE_COUNT} 大模块 · ${CATALOG_TOOL_COUNT} 个工具 · 案例驱动的实战训练`;
+  }
+
+  const metaDescription = document.querySelector('meta[name="description"]');
+  if (metaDescription) {
+    metaDescription.setAttribute("content", `新闻素养学习中枢 — ${CATALOG_MODULE_COUNT} 大模块 · ${CATALOG_TOOL_COUNT} 个工具 · 案例任务链驱动的实战训练`);
+  }
+
+  const modulesDesc = document.getElementById("modulesDesc");
+  if (modulesDesc) {
+    modulesDesc.innerHTML = `${CATALOG_TOOL_COUNT} 个工具按新闻素养核心能力分为 ${CATALOG_MODULE_COUNT} 大模块。点击工具名直接打开。<code>✓ 已用</code> 表示已有工具事件记录，<code>↺ 已恢复</code> 表示该工具状态来自任务进度恢复。`;
+  }
+
+  const footerCatalogText = document.getElementById("footerCatalogText");
+  if (footerCatalogText) {
+    footerCatalogText.textContent = `新闻素养工具集 · ${CATALOG_TOOL_COUNT} 个项目 · `;
+  }
+
+  const statModulesLabel = document.getElementById("statModulesLabel");
+  if (statModulesLabel) {
+    statModulesLabel.textContent = `/${CATALOG_MODULE_COUNT} 模块`;
+  }
+  const statTasksLabel = document.getElementById("statTasksLabel");
+  if (statTasksLabel) {
+    statTasksLabel.textContent = `/${CATALOG_MISSION_COUNT} 任务`;
+  }
+  const statToolsLabel = document.getElementById("statToolsLabel");
+  if (statToolsLabel) {
+    statToolsLabel.textContent = `/${CATALOG_TOOL_COUNT} 涉及工具`;
+  }
+}
+
 // ===== 渲染模块 =====
 function renderModules() {
   const grid = document.getElementById("moduleGrid");
@@ -1702,7 +1744,7 @@ function renderStats() {
   }).length;
 
   document.getElementById("sTotalEvents").textContent = totalEvents.toLocaleString();
-  document.getElementById("sToolsUsed").textContent = Math.min(used.size, 50) + "/50";
+  document.getElementById("sToolsUsed").textContent = Math.min(used.size, CATALOG_TOOL_COUNT) + `/${CATALOG_TOOL_COUNT}`;
   document.getElementById("sTasksDone").textContent = tasksDone;
   document.getElementById("sDwell").textContent = formatDuration(totalDwell);
 
@@ -1808,7 +1850,7 @@ function refreshHeroStats() {
 
   document.getElementById("statModules").textContent = modulesStarted;
   document.getElementById("statTasks").textContent = tasksDone;
-  document.getElementById("statTools").textContent = Math.min(used.size, 50);
+  document.getElementById("statTools").textContent = Math.min(used.size, CATALOG_TOOL_COUNT);
 
   // Dwell time for hero
   let totalDwell = getDwellFromEvents(selfEvents);
@@ -1933,5 +1975,6 @@ document.addEventListener("visibilitychange", () => {
 
 // ===== Init =====
 validateCatalogIntegrity();
+syncCatalogCopy();
 refreshDashboard();
 registerServiceWorker();

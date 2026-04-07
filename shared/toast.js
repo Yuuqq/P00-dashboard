@@ -5,7 +5,10 @@
  * 引入方式: <script src="./shared/toast.js" defer></script>
  *
  * API:
- *   window.showToast("消息内容", "success"|"info"|"warn"|"error", 3000)
+ *   window.showToast("消息内容", "success"|"info"|"warn"|"error", 3000, { track?: boolean })
+ *   window.clearToasts()
+ *   window.replaceToasts("消息内容", "success"|"info"|"warn"|"error", 3000, { track?: boolean })
+ *   window.showFreshToast("消息内容", "success"|"info"|"warn"|"error", 3000, { track?: boolean })
  *
  * 自动堆叠，自动消失，支持手动关闭。
  */
@@ -101,6 +104,16 @@
   };
 
   window.replaceToasts = function (message, type, duration, options) {
+    window.clearToasts?.();
+    window.pmMetrics?.reconcileStorageState?.({ resetPendingStatus: true, suppressActiveStatus: true });
+    window.showToast?.(message, type, duration, options);
+  };
+
+  window.showFreshToast = function (message, type, duration, options) {
+    if (typeof window.replaceToasts === "function") {
+      window.replaceToasts(message, type, duration, options);
+      return;
+    }
     window.clearToasts?.();
     window.pmMetrics?.reconcileStorageState?.({ resetPendingStatus: true, suppressActiveStatus: true });
     window.showToast?.(message, type, duration, options);
