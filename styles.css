@@ -1,13 +1,16 @@
 .app { max-width: 960px; margin: 0 auto; padding: 16px; }
 
 /* Hero */
-.hero { text-align: center; padding: 48px 16px 28px; }
-.hero h1 { font-size: 2.2rem; margin: 0 0 8px; }
-.subtitle { color: var(--ink-secondary); font-size: 1.05rem; margin: 0 0 24px; letter-spacing: 0.02em; }
-.hero-stats { display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; }
-.hero-stat { font-size: 0.85rem; color: var(--ink-secondary); text-align: center; font-weight: 500; }
-.hero-stat strong { font-size: 1.4rem; color: var(--accent); display: block; font-weight: 800; margin-bottom: 2px;
-  font-variant-numeric: tabular-nums; }
+.hero { text-align: center; padding: clamp(36px, 5vw, 56px) 16px clamp(24px, 3vw, 32px); }
+.hero h1 { font-size: clamp(1.65rem, 1.2rem + 2.2vw, 2.4rem); margin: 0 0 10px; text-wrap: balance; line-height: 1.18; letter-spacing: -0.01em; }
+.subtitle { color: var(--ink-secondary); font-size: 1.05rem; margin: 0 auto 24px; letter-spacing: 0.02em; max-width: 52ch; line-height: 1.55; text-wrap: balance; }
+.hero-stats { display: flex; justify-content: center; gap: 0; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.hero-stat { font-size: 0.82rem; color: var(--ink-secondary); text-align: center; font-weight: 500;
+  padding: 0 22px; position: relative; line-height: 1.4; }
+.hero-stat + .hero-stat::before { content: ""; position: absolute; left: 0; top: 14%; bottom: 14%;
+  width: 1px; background: var(--line); }
+.hero-stat strong { font-size: 1.5rem; color: var(--accent); display: block; font-weight: 800;
+  margin-bottom: 4px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.1; }
 
 /* Tabs */
 .tab-nav { display: flex; gap: 4px; margin: 28px 0 20px; border-bottom: 2px solid var(--line); overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -15,10 +18,11 @@
   color: var(--ink-secondary); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
   transition: color 0.2s, border-color 0.2s, background 0.2s; white-space: nowrap; border-radius: 8px 8px 0 0; }
 .tab:hover { color: var(--ink); background: var(--accent-light); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); background: none; }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px 8px 0 0; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); background: none; font-weight: 700; }
 .tab-panel { display: none; animation: fadeInUp 0.3s ease; }
 .tab-panel.active { display: block; }
-.section-desc { color: var(--ink-secondary); font-size: 0.88rem; margin: 0 0 20px; line-height: 1.6; }
+.section-desc { color: var(--ink-secondary); font-size: 0.92rem; margin: 0 0 24px; line-height: 1.7; max-width: 68ch; text-wrap: pretty; }
 
 /* Mission Cards */
 .mission-grid { display: grid; gap: 16px; }
@@ -29,10 +33,11 @@
   border-left: 4px solid var(--accent); position: relative;
 }
 .mission-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+.mission-card:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .mission-card:active { transform: scale(0.99); }
 .mission-card .mc-emoji { font-size: 2rem; margin-bottom: 8px; display: block; }
-.mission-card h3 { margin: 0 0 6px; font-size: 1.1rem; }
-.mission-card .mc-desc { font-size: 0.85rem; color: var(--ink-secondary); margin: 0 0 12px; line-height: 1.6; }
+.mission-card h3 { margin: 0 0 8px; font-size: 1.1rem; line-height: 1.3; text-wrap: balance; letter-spacing: -0.005em; }
+.mission-card .mc-desc { font-size: 0.88rem; color: var(--ink-secondary); margin: 0 0 14px; line-height: 1.65; text-wrap: pretty; }
 .mission-card .mc-meta { display: flex; gap: 12px; font-size: 0.75rem; color: var(--ink-secondary); flex-wrap: wrap; }
 .mission-card .mc-meta span { display: flex; align-items: center; gap: 4px; }
 .mission-card .mc-progress { margin-top: 12px; }
@@ -48,8 +53,8 @@
   box-shadow: var(--shadow-card); transition: transform 0.2s ease;
 }
 .module-card:hover { transform: translateY(-2px); }
-.module-card h3 { margin: 0 0 8px; font-size: 1.05rem; }
-.module-card .mod-desc { font-size: 0.82rem; color: var(--ink-secondary); margin: 0 0 12px; line-height: 1.5; }
+.module-card h3 { margin: 0 0 8px; font-size: 1.05rem; line-height: 1.3; text-wrap: balance; letter-spacing: -0.005em; }
+.module-card .mod-desc { font-size: 0.86rem; color: var(--ink-secondary); margin: 0 0 14px; line-height: 1.6; text-wrap: pretty; }
 .module-card .mod-progress { height: 8px; background: var(--line); border-radius: 4px; margin-bottom: 12px; overflow: hidden; }
 .module-card .mod-progress-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
 .module-card .tool-list { list-style: none; padding: 0; margin: 0; }
@@ -58,8 +63,9 @@
   display: flex; justify-content: space-between; align-items: center;
 }
 .module-card .tool-list li:last-child { border-bottom: none; }
-.tool-link { color: var(--accent); text-decoration: none; font-weight: 500; transition: color 0.15s; }
+.tool-link { color: var(--accent); text-decoration: none; font-weight: 500; transition: color 0.15s; border-radius: 3px; }
 .tool-link:hover { text-decoration: underline; color: var(--accent-hover); }
+.tool-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tool-used { color: var(--ok); font-size: 0.7rem; background: var(--ok-light); padding: 2px 6px; border-radius: 8px; }
 .tool-restored { color: var(--accent); font-size: 0.7rem; background: var(--accent-light); padding: 2px 6px; border-radius: 8px; }
 
@@ -105,7 +111,7 @@
 .modal-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .modal h2 { margin: 0 0 4px; flex: 1; }
 .modal-badge { font-size: 0.7rem; padding: 3px 10px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 600; white-space: nowrap; }
-.modal p { color: var(--ink-secondary); font-size: 0.88rem; line-height: 1.6; margin: 8px 0 0; }
+.modal p { color: var(--ink-secondary); font-size: 0.92rem; line-height: 1.7; margin: 8px 0 0; max-width: 62ch; text-wrap: pretty; }
 .mission-steps { margin: 20px 0; }
 .step-item { display: flex; gap: 12px; padding: 14px; margin-bottom: 8px; border-radius: var(--radius-sm);
   background: rgba(199,73,31,0.06); font-size: 0.85rem; align-items: flex-start; transition: background 0.2s; }
@@ -121,17 +127,20 @@
 .modal-actions button { flex: 1; }
 
 .card { background: var(--card); border-radius: var(--radius-md); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-card); }
-.card h3 { margin: 0 0 14px; font-size: 1.05rem; }
+.card h3 { margin: 0 0 14px; font-size: 1.05rem; line-height: 1.35; text-wrap: balance; letter-spacing: -0.005em; }
+.tab-panel > h2 { font-size: 1.45rem; line-height: 1.25; margin: 0 0 8px; text-wrap: balance; letter-spacing: -0.01em; }
 .empty-state { text-align: center; padding: 40px; color: var(--ink-secondary); font-size: 0.9rem; }
-.footer { text-align: center; padding: 32px 16px; font-size: 0.78rem; color: var(--ink-secondary); }
+.footer { text-align: center; padding: 40px 16px 24px; font-size: 0.8rem; color: var(--ink-secondary); letter-spacing: 0.01em; }
 .footer a { color: var(--accent); }
 
 /* Mobile */
 @media (max-width: 600px) {
   .hero h1 { font-size: 1.6rem; }
-  .hero-stats { gap: 16px; }
+  .hero-stats { gap: 0; }
+  .hero-stat { padding: 0 12px; }
+  .hero-stat + .hero-stat::before { top: 18%; bottom: 18%; }
   .hero-stat strong { font-size: 1.1rem; }
-  .tab { padding: 10px 14px; font-size: 0.82rem; }
+  .tab { padding: 13px 14px; font-size: 0.85rem; min-height: 44px; }
   .mission-card { padding: 18px; }
   .mission-card .mc-meta { gap: 8px; }
   .module-grid { grid-template-columns: 1fr; }
@@ -163,15 +172,14 @@
 .card:nth-child(4), [class*="card"]:nth-child(4) { animation-delay: 0.15s; }
 .card:nth-child(5), [class*="card"]:nth-child(5) { animation-delay: 0.2s; }
 
-/* Subtle pulse for primary buttons */
+/* Buttons: meaningful states only — no idle decorative pulse.
+   Use .btn-attention to opt-in for actionable emphasis (e.g. resume task). */
 @keyframes btnPulse {
   0%, 100% { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
   50% { box-shadow: 0 2px 12px rgba(199,73,31,0.25); }
 }
-button[id*="Btn"]:not(:disabled), .btn-primary {
-  animation: btnPulse 3s ease-in-out infinite;
-}
-button:disabled { animation: none; opacity: 0.6; }
+.btn-attention:not(:disabled) { animation: btnPulse 2.4s ease-in-out infinite; }
+button:disabled { animation: none; opacity: 0.6; cursor: not-allowed; }
 
 /* Smooth height transitions for collapsible sections */
 details { transition: all 0.2s ease; }
