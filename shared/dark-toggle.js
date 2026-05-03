@@ -150,3 +150,31 @@
     createToggle();
   }
 })();
+
+/* ===== v2.1 自动加载 global-nav.js (51 工具跨页跳转) =====
+ * 由 dark-toggle.js 代为注入，避免修改 51 个 index.html。
+ * 若工具自行加载了 global-nav.js，IIFE 内部已有 __globalNavInited 哨兵防重复。
+ */
+(function autoLoadGlobalNav() {
+  try {
+    var src = document.currentScript && document.currentScript.src;
+    if (!src) {
+      // currentScript 在 defer 场景为 null，回退：找已加载的 dark-toggle.js
+      var scripts = document.getElementsByTagName("script");
+      for (var i = scripts.length - 1; i >= 0; i--) {
+        if (scripts[i].src && scripts[i].src.indexOf("dark-toggle.js") !== -1) {
+          src = scripts[i].src; break;
+        }
+      }
+    }
+    if (!src) return;
+    var navSrc = src.replace(/dark-toggle\.js.*$/, "global-nav.js");
+    var s = document.createElement("script");
+    s.src = navSrc;
+    s.defer = true;
+    s.async = true;
+    document.head.appendChild(s);
+  } catch (_e) {
+    // global-nav 是渐进增强，失败不影响主功能
+  }
+})();
