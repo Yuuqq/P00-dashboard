@@ -226,3 +226,11 @@ details[open] summary { margin-bottom: 8px; }
   transition: opacity 0.3s ease;
 }
 .toast-msg.show { opacity: 1; }
+
+/* Coarse-pointer (touch devices) — ensure 44px tap targets at any viewport,
+   not just <600px. Per architect review of ui-ux-pro-max P2 touch-target-size. */
+@media (pointer: coarse) {
+  .tab { min-height: 44px; padding: 13px 16px; }
+  .tool-link { display: inline-block; padding: 4px 0; }
+  .modal-close { width: 44px; height: 44px; }
+}
