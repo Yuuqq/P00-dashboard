@@ -20,19 +20,20 @@
       } catch (e) { console.error("export-png html2canvas:", e); return false; }
     }
     // Fallback: SVG foreignObject — limited browser support
+    let url = null;
     try {
       const r = el.getBoundingClientRect();
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${r.width}" height="${r.height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${el.outerHTML}</div></foreignObject></svg>`;
       const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
+      url = URL.createObjectURL(blob);
       const img = new Image();
       await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
       const canvas = document.createElement("canvas");
       canvas.width = r.width; canvas.height = r.height;
       canvas.getContext("2d").drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
       return fromCanvas(canvas, filename);
     } catch (e) { console.error("export-png svg fallback:", e); return false; }
+    finally { if (url) try { URL.revokeObjectURL(url); } catch (e) { } }
   }
   window.ExportPNG = { fromCanvas, fromElement, downloadDataURL };
 })();
