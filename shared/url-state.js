@@ -1,8 +1,15 @@
 (function () {
   "use strict";
+  function encodeOne(v) {
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v); } catch (e) { return ""; }
+  }
   function encode(state) {
-    try { return new URLSearchParams(Object.entries(state).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)])).toString(); }
-    catch (e) { return ""; }
+    const params = new URLSearchParams();
+    for (const k of Object.keys(state || {})) {
+      try { params.set(k, encodeOne(state[k])); } catch (e) { /* skip bad key, keep others */ }
+    }
+    return params.toString();
   }
   function decode(qs) {
     const out = {};
