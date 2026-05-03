@@ -106,8 +106,13 @@
     const btn = document.createElement("button");
     btn.id = "darkToggleBtn";
     btn.type = "button";
+    // Position: bottom-right, stacked above the global-nav ⌘K fab.
+    // Previously top-right (top:12px right:12px) which overlapped with
+    // tools' own hero action buttons (教程 / 重置 / 导出 etc.). Moving
+    // both floating UI to the bottom-right column keeps page content
+    // clear of permanent overlays.
     btn.style.cssText = [
-      "position:fixed", "top:12px", "right:12px", "z-index:9999",
+      "position:fixed", "bottom:72px", "right:16px", "z-index:9999",
       "width:44px", "height:44px", "border-radius:50%",
       "border:2px solid var(--line)", "background:var(--card)",
       "color:var(--ink)", "font-size:22px", "cursor:pointer",
@@ -115,6 +120,23 @@
       "box-shadow:0 2px 8px rgba(0,0,0,0.15)", "transition:all .2s ease",
       "line-height:1", "padding:0"
     ].join(";");
+
+    // Mobile: tighter spacing to mirror gnav-fab's @media (max-width:600px)
+    // override (which uses bottom:12 right:12).
+    if (window.matchMedia && window.matchMedia("(max-width: 600px)").matches) {
+      btn.style.bottom = "68px";
+      btn.style.right = "12px";
+    }
+
+    // Hide both floating widgets in print to avoid them appearing in PDFs
+    // (gnav already self-hides via @media print; mirror that for parity).
+    var darkPrintStyle = document.getElementById("darkTogglePrintStyle");
+    if (!darkPrintStyle) {
+      darkPrintStyle = document.createElement("style");
+      darkPrintStyle.id = "darkTogglePrintStyle";
+      darkPrintStyle.textContent = "@media print { #darkToggleBtn { display: none !important; } }";
+      document.head.appendChild(darkPrintStyle);
+    }
     syncToggleButton(btn, document.documentElement.getAttribute("data-theme") || getPreferred());
     btn.addEventListener("mouseenter", function() { btn.style.transform = "scale(1.1)"; });
     btn.addEventListener("mouseleave", function() { btn.style.transform = "scale(1)"; });
