@@ -531,3 +531,69 @@ html:not(.fonts-ready) body { opacity: 1; }   /* 不阻塞，仅占位 */
     :where(h1, h2, h3) { page-break-after: avoid; }
     :where(img, table, pre, blockquote) { page-break-inside: avoid; }
 }
+
+/* =====================================================================
+ * v2.2 字体节奏（2026-05）— 统一 type scale + 行高 + 字距 tokens
+ * 所有规则均用 :where() 零特异性，工具的显式 font-size 永远优先。
+ * 各工具可选用 var(--text-xx) / var(--leading-xx) / var(--tracking-xx)。
+ * ===================================================================== */
+:root {
+    /* Type scale (1.125 minor third)，rem 基于 16px */
+    --text-xs:   0.75rem;    /* 12px — 元信息、徽章 */
+    --text-sm:   0.85rem;    /* 13.6px — 副标签、表格 */
+    --text-base: 0.95rem;    /* 15.2px — 正文 */
+    --text-md:   1rem;       /* 16px — 强调正文 */
+    --text-lg:   1.125rem;   /* 18px — 小标题 */
+    --text-xl:   1.4rem;     /* 22.4px — h2 */
+    --text-2xl:  1.75rem;    /* 28px — h1 紧凑 */
+    --text-hero: clamp(1.6rem, 3.2vw, 2.4rem); /* 流式 hero */
+
+    /* Leading */
+    --leading-tight:    1.2;   /* 标题 */
+    --leading-snug:     1.4;   /* 子标题 / 短行 */
+    --leading-normal:   1.6;   /* 正文（默认） */
+    --leading-relaxed:  1.75;  /* 长篇阅读 */
+
+    /* Tracking */
+    --tracking-tight:  -0.02em; /* 大标题 */
+    --tracking-normal: 0;
+    --tracking-wide:   0.04em;  /* 全大写小标签 */
+}
+
+/* 默认排版基线（零特异性，工具自定义会自动胜出） */
+:where(body) {
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+}
+:where(h1) {
+    font-size: var(--text-2xl);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    margin-block: 0 var(--space-sm, 8px);
+}
+:where(.hero h1, h1.hero, h1.gradient) {
+    font-size: var(--text-hero);
+}
+:where(h2) {
+    font-size: var(--text-xl);
+    line-height: var(--leading-snug);
+    letter-spacing: var(--tracking-tight);
+    margin-block: var(--space-md, 16px) var(--space-sm, 8px);
+}
+:where(h3) {
+    font-size: var(--text-lg);
+    line-height: var(--leading-snug);
+    margin-block: var(--space-md, 16px) var(--space-xs, 4px);
+}
+:where(h4, h5, h6) {
+    font-size: var(--text-md);
+    line-height: var(--leading-snug);
+}
+:where(small, .small, .caption) {
+    font-size: var(--text-xs);
+    line-height: var(--leading-snug);
+}
+:where(label) {
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+}
