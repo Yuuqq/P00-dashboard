@@ -169,10 +169,14 @@
     }
     if (!src) return;
     var navSrc = src.replace(/dark-toggle\.js.*$/, "global-nav.js");
+    // 去重：如果工具已经显式加载了 global-nav.js，跳过
+    if (document.querySelector('script[src*="global-nav.js"]')) return;
     var s = document.createElement("script");
     s.src = navSrc;
     s.defer = true;
-    s.async = true;
+    s.onerror = function () {
+      if (window.console && console.warn) console.warn("[dark-toggle] global-nav.js 加载失败:", navSrc);
+    };
     document.head.appendChild(s);
   } catch (_e) {
     // global-nav 是渐进增强，失败不影响主功能
