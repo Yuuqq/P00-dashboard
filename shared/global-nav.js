@@ -204,8 +204,13 @@
     const currentSlug = detectCurrentSlug();
 
     function buildTargetUrl(slug) {
-        // 当前路径形如 /P29-fallacy-match/index.html → 邻居为 ../P02-offline-sentiment/index.html
-        return `../${slug}/index.html`;
+        // 从当前路径定位 P##-* 段，从其根重建邻居 URL，支持子页面情况
+        // /foo/P29-x/index.html → /foo/P29-x/  → root=/foo/  → /foo/P02-y/index.html
+        // /foo/P29-x/sub/page.html → root=/foo/  → /foo/P02-y/index.html
+        const path = location.pathname;
+        const m = path.match(/^(.*\/)P\d{2}-[^/]+\//);
+        const base = m ? m[1] : path.replace(/[^/]*$/, "");
+        return base + slug + "/index.html";
     }
 
     function fuzzyMatch(tool, q) {
