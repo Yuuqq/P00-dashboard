@@ -234,3 +234,13 @@ details[open] summary { margin-bottom: 8px; }
   .tool-link { display: inline-block; padding: 4px 0; }
   .modal-close { width: 44px; height: 44px; }
 }
+
+/* ---- Print-friendly polish (v2.3 batch) ---- */
+@media print {
+  body { background: white !important; color: black !important; }
+  .global-nav, [data-nav], .skip-link, button:not(.print-keep), .btn:not(.print-keep) { display: none !important; }
+  a { color: inherit; text-decoration: underline; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.85em; word-break: break-all; }
+  .card, .panel, .hero { box-shadow: none !important; border: 1px solid #ccc !important; page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; break-after: avoid; }
+}
