@@ -10,6 +10,16 @@ function assert(condition, message) {
   }
 }
 
+function assertIncludes(source, snippet, message) {
+  assert(source.includes(snippet), message);
+}
+
+function assertSourceContracts(contracts) {
+  contracts.forEach(([source, snippet, message]) => {
+    assertIncludes(source, snippet, message);
+  });
+}
+
 function getLocalAssetPath(ref) {
   if (typeof ref !== "string" || !ref.startsWith("./")) return "";
   return path.resolve(ROOT_DIR, ref.slice(2));
@@ -82,6 +92,12 @@ const missionsSection = extractSection(appSource, "const MISSIONS = [", "const M
 const toolSlugsSection = extractSection(appSource, "const TOOL_SLUGS = {", "function getToolSlug", "TOOL_SLUGS section");
 const lightThemeBlock = extractSection(designTokensSource, ":root {", "/* ===== Dark Mode", "light design tokens");
 const manualDarkThemeBlock = extractSection(designTokensSource, ":root[data-theme=\"dark\"] {", "/* ===== Global Reset =====", "manual dark design tokens");
+const darkToggleSafeSetThemeSection = extractSection(darkToggleSource, "  function safeSetTheme(theme) {", "  function getStoredTheme() {", "dark-toggle safeSetTheme");
+const darkToggleApplyThemeSection = extractSection(darkToggleSource, "  function applyTheme(theme, options) {", "  function createToggle()", "dark-toggle applyTheme");
+const darkToggleCreateToggleSection = extractSection(darkToggleSource, "function createToggle() {", "  function handleSystemThemeChange()", "dark-toggle createToggle");
+const darkToggleHandleSystemThemeChangeSection = extractSection(darkToggleSource, "  function handleSystemThemeChange() {", "  if (THEME_QUERY)", "dark-toggle handleSystemThemeChange");
+const darkToggleStorageHandlerSection = extractSection(darkToggleSource, 'window.addEventListener("storage", function (event) {', "  // Init", "dark-toggle storage handler");
+const darkToggleInitSection = extractSection(darkToggleSource, "  // Init", "})();", "dark-toggle init");
 const htmlLang = extractFirstMatch(indexSource, /<html[^>]*\blang="([^"]+)"/i, "html lang");
 const htmlTitle = extractFirstMatch(indexSource, /<title>([^<]+)<\/title>/i, "document title");
 const appleTitle = extractFirstMatch(indexSource, /<meta\s+name="apple-mobile-web-app-title"\s+content="([^"]+)"/i, "apple mobile web app title");
@@ -143,27 +159,39 @@ assert(darkToggleFallbackLight === lightThemeBg, `dark-toggle fallback light the
 assert(stylesheetRefs.indexOf("./shared/design-tokens.css") !== -1 && stylesheetRefs.indexOf("./styles.css") !== -1, `index.html is missing required stylesheets: ${JSON.stringify(stylesheetRefs)}`);
 assert(stylesheetRefs.indexOf("./shared/design-tokens.css") < stylesheetRefs.indexOf("./styles.css"), `index.html should load design tokens before app styles: ${JSON.stringify(stylesheetRefs)}`);
 assert(scriptRefs.join("|") === "./pm-metrics.js|./shared/toast.js|./app.js|./shared/dark-toggle.js", `index.html script order drifted from the expected shared/runtime contract: ${JSON.stringify(scriptRefs)}`);
-assert(toastSource.includes("window.showToast = function"), "shared/toast.js must expose window.showToast");
-assert(toastSource.includes("window.clearToasts = function"), "shared/toast.js must expose window.clearToasts");
-assert(toastSource.includes("window.replaceToasts = function"), "shared/toast.js must expose window.replaceToasts");
-assert(toastSource.includes("window.showFreshToast = function"), "shared/toast.js must expose window.showFreshToast");
-assert(appSource.includes("const showFreshToast = (message, type, duration, options) => {"), "app.js must define the local showFreshToast adapter");
-assert(appSource.includes('typeof window.showFreshToast === "function"'), "app.js should delegate showFreshToast calls to the shared helper when available");
-assert(darkToggleSource.includes('typeof window.showFreshToast === "function"'), "shared/dark-toggle.js should prefer the shared showFreshToast helper when available");
-assert(darkToggleSource.includes('const THEME_QUERY = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;'), "shared/dark-toggle.js should tolerate browsers without window.matchMedia by falling back to a null theme query");
-assert(darkToggleSource.includes("function safeGetTheme() {"), "shared/dark-toggle.js should keep a guarded storage read helper for theme preference access");
-assert(darkToggleSource.includes("} catch (_e) {\n      return null;"), "shared/dark-toggle.js should treat unreadable stored theme values as missing by returning null from safeGetTheme()");
-assert(darkToggleSource.includes('return THEME_QUERY && THEME_QUERY.matches ? "dark" : "light";'), "shared/dark-toggle.js should fall back to light mode when no prefers-color-scheme query is available");
-assert(darkToggleSource.includes("return getStoredTheme() || getSystemTheme();"), "shared/dark-toggle.js should resolve the preferred theme from stored preference first, then system theme");
-assert(darkToggleSource.includes("function syncToggleButton(btn, theme) {"), "shared/dark-toggle.js should keep a dedicated helper for syncing the dark-toggle button state");
-assert(darkToggleSource.includes("syncToggleButton(btn, theme);"), "shared/dark-toggle.js should keep the runtime applyTheme() path wired to sync the toggle button state");
-assert(darkToggleSource.includes('syncToggleButton(btn, document.documentElement.getAttribute("data-theme") || getPreferred());'), "shared/dark-toggle.js should initialize the created dark-toggle button from the current preferred theme");
-assert(darkToggleSource.includes('return stored === "dark" || stored === "light" ? stored : null;'), "shared/dark-toggle.js should ignore invalid stored theme values instead of treating them as pinned themes");
-assert(darkToggleSource.includes("if (!getStoredTheme()) applyTheme(getSystemTheme());"), "shared/dark-toggle.js should ignore later system-theme changes once a stored theme preference exists");
-assert(darkToggleSource.includes('THEME_QUERY.addEventListener("change", handleSystemThemeChange)'), "shared/dark-toggle.js should register prefers-color-scheme changes through matchMedia.addEventListener when available");
-assert(darkToggleSource.includes('THEME_QUERY.addListener(handleSystemThemeChange)'), "shared/dark-toggle.js should keep the legacy matchMedia.addListener fallback for older browsers");
-assert(darkToggleSource.includes('if (event.key !== null && event.key !== STORAGE_KEY) return;'), "shared/dark-toggle.js should ignore unrelated storage events and only react to theme-key or clear-all updates");
-assert(darkToggleSource.includes("applyTheme(getPreferred());"), "shared/dark-toggle.js should apply the resolved preferred theme during startup");
+assertSourceContracts([
+  [toastSource, "window.showToast = function", "shared/toast.js must expose window.showToast"],
+  [toastSource, "window.clearToasts = function", "shared/toast.js must expose window.clearToasts"],
+  [toastSource, "window.replaceToasts = function", "shared/toast.js must expose window.replaceToasts"],
+  [toastSource, "window.showFreshToast = function", "shared/toast.js must expose window.showFreshToast"],
+  [appSource, "const showFreshToast = (message, type, duration, options) => {", "app.js must define the local showFreshToast adapter"],
+  [appSource, 'typeof window.showFreshToast === "function"', "app.js should delegate showFreshToast calls to the shared helper when available"]
+]);
+assertSourceContracts([
+  [darkToggleSource, 'typeof window.showFreshToast === "function"', "shared/dark-toggle.js should prefer the shared showFreshToast helper when available"],
+  [darkToggleSource, 'const THEME_QUERY = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;', "shared/dark-toggle.js should tolerate browsers without window.matchMedia by falling back to a null theme query"],
+  [darkToggleSource, "function safeGetTheme() {", "shared/dark-toggle.js should keep a guarded storage read helper for theme preference access"],
+  [darkToggleSource, "} catch (_e) {\n      return null;", "shared/dark-toggle.js should treat unreadable stored theme values as missing by returning null from safeGetTheme()"],
+  [darkToggleSource, 'return THEME_QUERY && THEME_QUERY.matches ? "dark" : "light";', "shared/dark-toggle.js should fall back to light mode when no prefers-color-scheme query is available"],
+  [darkToggleSource, "return getStoredTheme() || getSystemTheme();", "shared/dark-toggle.js should resolve the preferred theme from stored preference first, then system theme"],
+  [darkToggleSource, "function syncToggleButton(btn, theme) {", "shared/dark-toggle.js should keep a dedicated helper for syncing the dark-toggle button state"],
+  [darkToggleSource, 'return stored === "dark" || stored === "light" ? stored : null;', "shared/dark-toggle.js should ignore invalid stored theme values instead of treating them as pinned themes"],
+  [darkToggleSource, 'THEME_QUERY.addEventListener("change", handleSystemThemeChange)', "shared/dark-toggle.js should register prefers-color-scheme changes through matchMedia.addEventListener when available"],
+  [darkToggleSource, 'THEME_QUERY.addListener(handleSystemThemeChange)', "shared/dark-toggle.js should keep the legacy matchMedia.addListener fallback for older browsers"],
+  [darkToggleSource, 'const current = document.documentElement.getAttribute("data-theme") || getPreferred();', "shared/dark-toggle.js should derive the next persisted theme from the current applied theme before toggling"],
+  [darkToggleSource, 'applyTheme(current === "dark" ? "light" : "dark", { persist: true });', "shared/dark-toggle.js should persist the inverse theme when the toggle button is clicked"]
+]);
+assertSourceContracts([
+  [darkToggleSafeSetThemeSection, "if (hasStoredThemeKey() && safeGetTheme() === null) {", "shared/dark-toggle.js should refuse to overwrite an unreadable existing theme key"],
+  [darkToggleSafeSetThemeSection, "return !hasStoredThemeKey();", "shared/dark-toggle.js should verify theme-key removal before treating a cleared preference as persisted"],
+  [darkToggleSafeSetThemeSection, "return safeGetTheme() === theme;", "shared/dark-toggle.js should verify a stored theme write by rereading the saved value"],
+  [darkToggleApplyThemeSection, "syncToggleButton(btn, theme);", "shared/dark-toggle.js should keep the runtime applyTheme() path wired to sync the toggle button state"],
+  [darkToggleCreateToggleSection, 'syncToggleButton(btn, document.documentElement.getAttribute("data-theme") || getPreferred());', "shared/dark-toggle.js should initialize the created dark-toggle button from the current preferred theme"],
+  [darkToggleHandleSystemThemeChangeSection, "if (!getStoredTheme()) applyTheme(getSystemTheme());", "shared/dark-toggle.js should ignore later system-theme changes once a stored theme preference exists"],
+  [darkToggleStorageHandlerSection, 'if (event.key !== null && event.key !== STORAGE_KEY) return;', "shared/dark-toggle.js should ignore unrelated storage events and only react to theme-key or clear-all updates"],
+  [darkToggleStorageHandlerSection, "applyTheme(getPreferred());", "shared/dark-toggle.js should reapply the resolved preferred theme on accepted storage events"],
+  [darkToggleInitSection, "applyTheme(getPreferred());", "shared/dark-toggle.js should apply the resolved preferred theme during startup"]
+]);
 assert(duplicateToolIds.length === 0, `Catalog contains duplicate tool ids: ${JSON.stringify(duplicateToolIds)}`);
 assert(missingSlugIds.length === 0, `Catalog contains tool ids without slugs: ${JSON.stringify(missingSlugIds)}`);
 assert(unknownMissionToolIds.length === 0, `Mission catalog references unknown tool ids: ${JSON.stringify(unknownMissionToolIds)}`);

@@ -1,10 +1,10 @@
 {
   "id": "./",
-  "name": "新闻素养学习中枢",
-  "short_name": "新闻素养中枢",
+  "name": "P00 新闻素养学习中枢",
+  "short_name": "P00",
   "description": "新闻素养学习中枢 — 5 大模块、50 个工具、案例驱动的实战训练入口。",
   "lang": "zh-CN",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f4f0e8",

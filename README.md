@@ -46,7 +46,7 @@ npm run regression
 Notes:
 
 - The browser regression harness lives at `scripts/regression-check.mjs`.
-- The fast static check lives at `scripts/static-check.mjs` and validates manifest/index local asset refs, source-level PWA identity fields, catalog integrity/count copy, expected stylesheet/script order, `index.html`/`app.js` DOM-id contracts, tab mapping/startup state and a11y attributes, tab/modal accessibility wiring, shared toast helper exports/usage contracts, theme-color/background-color contracts against design tokens, and duplicate-free `sw.js` `CORE_ASSETS` coverage for those assets.
+- The fast static check lives at `scripts/static-check.mjs` and validates manifest/index local asset refs, source-level PWA identity fields, catalog integrity/count copy, expected stylesheet/script order, `index.html`/`app.js` DOM-id contracts, tab mapping/startup state and a11y attributes, tab/modal accessibility wiring, shared toast helper exports/usage contracts, theme-color/background-color and theme-storage write-guard contracts against the shared design/runtime sources, and duplicate-free `sw.js` `CORE_ASSETS` coverage for those assets.
 - `npm run syntax` runs `node --check` across the dashboard entrypoints and shared scripts.
 - `npm run static` runs only the static contract checks.
 - `npm run browser` runs only the Playwright regression harness.
@@ -67,7 +67,7 @@ The combined `npm run regression` path focuses on the failure modes that are eas
 - Module badge precedence (`✓ 已用` vs `↺ 已恢复`) and stats-panel empty/positive rendering states
 - Catalog integrity checks for duplicate tool ids, missing slugs, and mission/tool reference drift
 - Same-page resync after clear, restore, or in-place repair
-- Theme-color sync, cross-tab theme preference sync/reset/clear, unrelated-storage ignore behavior, and system-theme follow/ignore behavior across both modern and legacy `matchMedia` listener paths
+- Theme-color sync, cross-tab theme preference sync/reset/clear, unrelated-storage ignore behavior, and system-theme follow/ignore behavior across both modern and legacy `matchMedia` listener paths, including invalid/unreadable theme fallbacks under light and dark system themes
 - Offline shell behavior, service worker cache cleanup, cached shared scripts, and service-worker registration warning fallback
 - Static service-worker asset coverage checks so `CORE_ASSETS`, `index.html`, and `manifest.json` stay aligned
 
@@ -114,12 +114,23 @@ The shared dark-mode toggle follows a simple contract:
 
 - Without a stored preference, the dashboard follows the current system color scheme and returns to that system theme after cross-tab preference removal or full storage clear.
 - If `window.matchMedia` is unavailable, the dashboard falls back to light mode until the user explicitly pins a theme.
+- Theme persistence is only treated as successful after the theme key can be reread or confirmed removed from browser storage.
 - Invalid stored theme values are treated the same as having no stored preference: they are ignored and the dashboard falls back to the current system theme.
 - Unreadable stored theme values are also treated as missing, so startup and cross-tab sync fall back to the current system theme instead of breaking the UI state.
+- If an unreadable theme key already exists, clicking the toggle still updates the current page theme but surfaces a warning instead of overwriting unreadable browser state.
+- Because invalid and unreadable stored values are treated as missing, later system theme changes still apply instead of being blocked as if a valid preference were pinned.
 - The toggle button icon and ARIA state are initialized from the resolved startup theme, so the control stays aligned with the page theme even before any later theme change events.
 - Once the user pins a theme, later system theme changes are ignored until that stored preference is removed.
 - Unrelated cross-tab storage writes should not retrigger theme application or disturb the pinned theme UI state.
 - The shared toggle keeps both the modern `matchMedia.addEventListener("change", ...)` path and the legacy `matchMedia.addListener(...)` fallback.
+
+The regression harness now exercises that contract across:
+
+- startup with light and dark system themes
+- startup with valid, invalid, and unreadable stored theme values
+- startup and live sync when `window.matchMedia` is unavailable
+- cross-tab sync/reset/clear paths, including invalid and unreadable theme storage
+- the same invalid/unreadable fallback rules under both light and dark system-theme contexts
 
 ## Catalog Copy
 

@@ -32,6 +32,18 @@ body {
     background-attachment: fixed !important;
 }
 
+/* ===== gnav spacer + safe padding ===== */
+main, .app {
+    padding-top: 48px !important;
+    padding-left: max(16px, var(--page-pad, 16px)) !important;
+    padding-right: max(16px, var(--page-pad, 16px)) !important;
+}
+
+.card, .panel, .hero, header, section, article {
+    padding-left: max(14px, var(--card-pad, 14px)) !important;
+    padding-right: max(14px, var(--card-pad, 14px)) !important;
+}
+
 /* ===== 现代化卡片设计 ===== */
 .card, .panel, .container > div, section {
     background: var(--card) !important;
@@ -178,6 +190,7 @@ input:focus, textarea:focus, select:focus {
 .teach-card {
     background: linear-gradient(135deg, rgba(37, 99, 235, 0.03) 0%, rgba(59, 130, 246, 0.01) 100%) !important;
     border-left: 4px solid var(--accent-modern) !important;
+    padding-left: 16px !important;
 }
 
 .teach-card summary {
@@ -238,6 +251,7 @@ a:hover::after {
 
 .app, main, body > .container {
     animation: fadeInUp 0.5s ease-out;
+    overflow-x: hidden;
 }
 
 /* ===== 现代化响应式设计 ===== */
