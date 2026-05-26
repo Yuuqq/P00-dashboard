@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="type-scale-v22">
 <head>
   <meta charset="utf-8" />
   <link rel="icon" type="image/png" sizes="32x32" href="./icon-32.png" />
@@ -7,19 +7,23 @@
   <link rel="icon" type="image/svg+xml" href="./icon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#f4f0e8" media="(prefers-color-scheme: light)" />
+  <meta name="color-scheme" content="light dark">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="新闻素养学习中枢">
+  <meta property="og:description" content="🎓 新闻素养学习中枢">
   <meta name="theme-color" content="#1a1a2e" media="(prefers-color-scheme: dark)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="新闻素养中枢" />
   <title>新闻素养学习中枢</title>
   <link rel="stylesheet" href="./shared/design-tokens.css" />
-  <link rel="stylesheet" href="./shared/modern-styles.css" />
   <link rel="stylesheet" href="./styles.css" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
   <meta name="description" content="新闻素养学习中枢 — 5 大模块 · 50 个工具 · 案例任务链驱动的实战训练" />
 </head>
 <body>
-  <main aria-label="主内容区域" class="app">
+  <a href="#app" class="skip-link">跳到主内容 / Skip to main content</a>
+  <main class="app" id="app">
     <!-- Hero -->
     <header class="hero">
       <h1>🎓 新闻素养学习中枢</h1>
@@ -95,17 +99,9 @@
     </footer>
   </main>
 
-  <!-- Privacy Notice -->
-  <div style="text-align:center;padding:12px 16px;font-size:12px;color:#888;border-top:1px solid #eee;margin-top:24px;">
-    🔒 隐私提示：本工具所有数据处理均在您的浏览器本地完成，不会上传任何数据至服务器。
-  </div>
-
-
   <script src="./pm-metrics.js" defer></script>
-  <script src="./shared/toast.js" defer></script>
+  <script src="./shared/releases/v2.6/loader.js" data-modules="toast,dark"></script>
   <script src="./app.js" defer></script>
-  <script src="./shared/dark-toggle.js" defer></script>
-<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(()=>{})}</script>
 </body>
 </html>
 
