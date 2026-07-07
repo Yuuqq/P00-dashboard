@@ -1,190 +1,212 @@
-# P00 Dashboard
+# 🎓 新闻素养学习中枢
 
-Standalone dashboard for the journalism tools collection.
+> **P00 Dashboard** — 5 大模块 · 50 个工具 · 案例驱动的实战训练  
+> 完全本地运行 · 隐私安全 · 适合新手与进阶学习者
 
-## Overview
+一个**无需注册、无需联网（离线可用）**的新闻素养实战学习仪表盘。所有数据仅存储在你的浏览器本地，安全、私密、随时可导出备份。
 
-This project is a self-contained learning dashboard with:
+---
 
-- Local mission progress tracking
-- Dashboard-side metrics collection and export/import
-- PWA shell support for offline reloads
-- Browser regression coverage for storage corruption, migration, retry, and retention edge cases
+## 🌟 为什么选择它？
 
-## Local checks
+- **实战导向**：不是枯燥理论，而是通过真实新闻案例任务链，串联多个工具完成一次完整核查流程
+- **系统学习**：5 大核心模块，覆盖 50 个实用新闻素养工具
+- **智能反馈**：自动记录学习进度、工具使用频率、学习时长，生成专属「学习画像」
+- **数据自主权**：一键导出 JSON 备份、导入恢复、清除重置，数据永远属于你
+- **现代化体验**：响应式设计、深浅色主题自动跟随系统、PWA 支持（可安装到桌面/手机主屏幕）
 
-Run JavaScript syntax checks only:
+**适合人群**：新闻传播专业学生、媒体素养教育者、事实核查爱好者、任何想提升信息辨别能力的人。
 
-```powershell
+---
+
+## 🚀 快速开始（新手 3 分钟上手）
+
+### 方法一：最简单 —— 直接双击打开（推荐新手）
+
+1. 点击仓库页面右上角绿色 **Code** 按钮 → **Download ZIP**
+2. 解压下载的 `P00-dashboard-main.zip`
+3. 进入解压后的文件夹，双击打开 **`index.html`**
+4. 浏览器自动加载，即可开始使用！
+
+> ⚠️ **小贴士**：首次打开可能提示“脚本运行”，请允许。所有功能均在本地运行。
+
+### 方法二：使用本地服务器（推荐，PWA 功能完整）
+
+推荐使用以下任意一种方式启动本地服务器：
+
+**Python（大多数电脑自带）**
+```bash
+# 进入项目文件夹后执行
+python -m http.server 8000
+```
+然后在浏览器访问：**http://localhost:8000**
+
+**Node.js（推荐）**
+```bash
+npx serve .
+# 或
+npx http-server -p 8000
+```
+
+**VS Code 用户**
+- 安装 **Live Server** 扩展
+- 右键 `index.html` → **Open with Live Server**
+
+启动后，你可以：
+- 点击浏览器地址栏右侧的 **安装图标**（或菜单 → 安装应用），将仪表盘安装为独立桌面/手机应用
+- 断网后依然可以继续使用（离线缓存已生效）
+
+---
+
+## 📖 功能详解
+
+### 🗺️ 新手学习路径（推荐流程）
+
+```mermaid
+flowchart TD
+    Start([🚀 打开仪表盘 index.html]) --> Tab1{选择标签页}
+    
+    Tab1 -->|🎯 实战任务| Mission[浏览案例任务列表]
+    Mission --> Detail[点击任务卡片查看详情]
+    Detail --> StartMission[点击「开始任务」]
+    StartMission --> Steps[按步骤使用工具完成核查]
+    Steps --> Progress[进度自动保存 + 获得反馈]
+    Progress --> StatsUpdate[学习数据实时更新]
+    
+    Tab1 -->|📚 学习模块| Modules[浏览 5 大模块 + 50 工具]
+    Modules --> Tool[点击工具深入了解]
+    Tool --> Record[使用后自动标记「✓ 已用」]
+    
+    Tab1 -->|📊 学习画像| Stats[查看个人统计仪表盘]
+    Stats --> Chart[工具排行 + 90天活跃日历]
+    Stats --> Export[导出 JSON 备份数据]
+    
+    StatsUpdate --> Stats
+    Progress --> Tab1
+```
+
+**建议顺序**：先从「实战任务」开始做 1-2 个案例 → 再去「学习模块」系统复习 → 最后在「学习画像」查看成长轨迹。
+
+---
+
+### 1. 🎯 实战任务（Missions）
+
+这是**核心学习入口**！
+
+- 每个任务都是一个**真实新闻核查案例**，会引导你按顺序使用 4~5 个相关工具
+- 难度由浅入深排列
+- 点击任务卡片 → 查看详情 → **🚀 开始任务**
+- 任务进行中会高亮当前步骤，完成后自动保存进度
+- 支持**重置进度**，随时重新开始
+
+**学习建议**：从第一个任务开始，边做边思考为什么这个工具在这个环节有用。
+
+### 2. 📚 学习模块（Modules）
+
+按新闻素养核心能力分类的 **50 个工具** 总览：
+
+- 5 大模块清晰呈现
+- 每个工具都有简要说明
+- 点击工具名称可直接跳转对应资源或练习
+- **✓ 已用** 表示你已通过该工具产生过学习记录
+- **↺ 已恢复** 表示该进度来自任务恢复
+
+适合系统性回顾和查漏补缺。
+
+### 3. 📊 学习画像（Stats）
+
+你的专属学习数据看板（**完全本地**）：
+
+- **总事件数**、**已涉及工具**、**完成任务数**、**总停留时长**
+- **🏆 工具使用排行**：柱状图展示你最常用的工具（使用 ECharts 渲染）
+- **📅 活跃日历**：过去 90 天学习热力图，一眼看出学习习惯
+- **数据操作区**：
+  - 📤 **导入数据**：从之前导出的 JSON 文件恢复进度
+  - 📥 **导出数据**：一键下载完整学习记录（可备份或迁移到其他设备）
+  - 🗑️ **清除全部数据**：谨慎操作，会清空所有本地记录
+
+> 💡 **隐私承诺**：所有数据**永不离开你的设备**，没有服务器、没有账号、没有追踪。
+
+---
+
+## 🛠️ 进阶操作
+
+### PWA 安装（推荐）
+
+启动本地服务器后：
+1. 在 Chrome/Edge 等现代浏览器中，点击地址栏右侧的 **+ 安装** 图标
+2. 或菜单 → **安装 新闻素养学习中枢**
+3. 安装后可像原生 App 一样使用，支持离线、独立窗口
+
+### 数据备份与迁移
+
+- 定期点击 **导出数据**，将 JSON 文件保存到云盘或 U 盘
+- 在新设备上打开仪表盘后，点击 **导入数据** 即可无缝继续学习
+
+### 主题切换
+
+右上角或页面内有深色模式切换按钮，自动跟随系统设置，也可手动固定偏好。
+
+---
+
+## ❓ 常见问题（FAQ）
+
+**Q: 为什么有些功能需要本地服务器才能用？**  
+A: PWA 安装、Service Worker 离线缓存等现代 Web 功能需要 HTTP 协议（`file://` 协议有限制）。新手直接双击打开也能用 90% 功能。
+
+**Q: 数据会丢失吗？**  
+A: 浏览器清除缓存或隐私模式下可能丢失。建议定期**导出备份**！
+
+**Q: 可以多人共用一台电脑吗？**  
+A: 可以，但数据是按浏览器存储的。不同浏览器/设备数据独立，建议用「导出/导入」迁移。
+
+**Q: 如何贡献新任务或工具？**  
+A: 欢迎！详见下方「开发者说明」或联系仓库维护者。
+
+**Q: 为什么界面有英文混杂？**  
+A: 核心内容为中文，部分技术实现保留英文标识，属于正常现象。
+
+---
+
+## 👨‍💻 开发者 / 贡献者说明
+
+本项目包含完善的本地回归测试套件，确保数据安全与功能稳定。
+
+### 本地检查命令
+
+```bash
+# 仅语法检查
 npm run syntax
-```
 
-Run fast syntax and static asset checks:
-
-```powershell
+# 快速静态检查（推荐）
 npm run check
-```
 
-Run the fast static contract checks only:
-
-```powershell
-npm run static
-```
-
-Run the Playwright/browser regression harness only:
-
-```powershell
+# 仅运行浏览器回归测试（需 Playwright）
 npm run browser
-```
 
-Run the full regression path:
-
-```powershell
+# 完整回归流程（静态 + 浏览器）
 npm run regression
 ```
 
-Notes:
+详细测试覆盖范围、存储安全模型、UI 语义契约等技术说明，请参考原版 README 的技术章节或 `scripts/` 目录下的检查脚本。
 
-- The browser regression harness lives at `scripts/regression-check.mjs`.
-- The fast static check lives at `scripts/static-check.mjs` and validates manifest/index local asset refs, source-level PWA identity fields, catalog integrity/count copy, expected stylesheet/script order, `index.html`/`app.js` DOM-id contracts, tab mapping/startup state and a11y attributes, tab/modal accessibility wiring, shared toast helper exports/usage contracts, theme-color/background-color and theme-storage write-guard contracts against the shared design/runtime sources, and duplicate-free `sw.js` `CORE_ASSETS` coverage for those assets.
-- `npm run syntax` runs `node --check` across the dashboard entrypoints and shared scripts.
-- `npm run static` runs only the static contract checks.
-- `npm run browser` runs only the Playwright regression harness.
-- `npm run regression` runs the static check first, then the Playwright regression harness.
-- It expects `playwright` to be resolvable from this workspace or a parent workspace.
+**核心技术栈**：
+- 纯静态 HTML + CSS + JavaScript（无框架依赖）
+- ECharts（图表）、Leaflet（地图，可选）、A-Frame（3D，可选）
+- Service Worker + Manifest（PWA）
+- localStorage + 自定义 metrics 收集层
 
-## What The Regression Suite Covers
+---
 
-The combined `npm run regression` path focuses on the failure modes that are easiest to miss in manual testing:
+## 📄 许可证与致谢
 
-- Storage corruption and unreadable-key handling
-- Export/import rollback safety
-- Legacy metric/task-marker migration and alias normalization
-- Mission start/reset/complete recovery behavior
-- Pending metric flush behavior under transient write failure and 500-event retention
-- Status signal tracking from both `#status` nodes and real toast notifications
-- App-level toast replacement fallback behavior when `window.replaceToasts` is unavailable
-- Module badge precedence (`✓ 已用` vs `↺ 已恢复`) and stats-panel empty/positive rendering states
-- Catalog integrity checks for duplicate tool ids, missing slugs, and mission/tool reference drift
-- Same-page resync after clear, restore, or in-place repair
-- Theme-color sync, cross-tab theme preference sync/reset/clear, unrelated-storage ignore behavior, and system-theme follow/ignore behavior across both modern and legacy `matchMedia` listener paths, including invalid/unreadable theme fallbacks under light and dark system themes
-- Offline shell behavior, service worker cache cleanup, cached shared scripts, and service-worker registration warning fallback
-- Static service-worker asset coverage checks so `CORE_ASSETS`, `index.html`, and `manifest.json` stay aligned
+本项目由 **qcma & CSS Lab** 维护，欢迎 Star ⭐ 和提交 PR！
 
-## Storage Safety Model
+如有任何问题或建议，请在 GitHub Issues 中反馈。
 
-The dashboard is intentionally conservative about browser storage:
+---
 
-- Corrupt or unreadable progress/metrics storage is treated as unsafe for export and destructive clear flows.
-- Task-start markers are lower-priority state; unreadable markers block mission resume fidelity but do not block safe restore/clear rollback behavior.
-- Public snapshot/export helpers throw `snapshot_failed` when the current storage state is unsafe instead of returning partial data.
-- Collector writes refuse to overwrite unreadable or corrupt existing metric logs.
+**开始你的新闻素养之旅吧！**  
+打开仪表盘，挑选第一个任务，开启实战学习 🚀
 
-## UI Semantics
-
-Outcome toasts intentionally replace stale visible toasts before showing their own result message:
-
-- Import success, cancel, invalid input, and restore failure
-- Export success and export preflight/build failure
-- Clear success and clear rollback/failure
-- Mission step/reset success and progress-save failure
-- Popup-blocked warnings
-- Theme persistence warning
-- Managed storage safety warnings
-
-This keeps old visible status messages from being rehydrated into later metric events while still preserving the original tracked signal in storage.
-
-Two toast behaviors matter for metrics:
-
-- Outcome toasts shown through `showFreshToast()` replace visible stale toasts and suppress active-status rehydration.
-- That replacement behavior is also regression-tested through the internal fallback path used when `window.replaceToasts` is unavailable.
-- Some informational outcomes intentionally use `track: false` so the UI still tells the user what happened without creating a new status signal event.
-
-The shared toast layer exposes three distinct helpers:
-
-- `showToast()` appends a toast without clearing earlier ones.
-- `replaceToasts()` clears visible toasts first, then shows the next toast.
-- `showFreshToast()` uses `replaceToasts()` when available and falls back to the same clear-and-suppress behavior when it is not.
-
-Managed storage safety warnings are also deduplicated while visible and can reappear later if the unsafe state persists after dismissal.
-
-## Theme Behavior
-
-The shared dark-mode toggle follows a simple contract:
-
-- Without a stored preference, the dashboard follows the current system color scheme and returns to that system theme after cross-tab preference removal or full storage clear.
-- If `window.matchMedia` is unavailable, the dashboard falls back to light mode until the user explicitly pins a theme.
-- Theme persistence is only treated as successful after the theme key can be reread or confirmed removed from browser storage.
-- Invalid stored theme values are treated the same as having no stored preference: they are ignored and the dashboard falls back to the current system theme.
-- Unreadable stored theme values are also treated as missing, so startup and cross-tab sync fall back to the current system theme instead of breaking the UI state.
-- If an unreadable theme key already exists, clicking the toggle still updates the current page theme but surfaces a warning instead of overwriting unreadable browser state.
-- Because invalid and unreadable stored values are treated as missing, later system theme changes still apply instead of being blocked as if a valid preference were pinned.
-- The toggle button icon and ARIA state are initialized from the resolved startup theme, so the control stays aligned with the page theme even before any later theme change events.
-- Once the user pins a theme, later system theme changes are ignored until that stored preference is removed.
-- Unrelated cross-tab storage writes should not retrigger theme application or disturb the pinned theme UI state.
-- The shared toggle keeps both the modern `matchMedia.addEventListener("change", ...)` path and the legacy `matchMedia.addListener(...)` fallback.
-
-The regression harness now exercises that contract across:
-
-- startup with light and dark system themes
-- startup with valid, invalid, and unreadable stored theme values
-- startup and live sync when `window.matchMedia` is unavailable
-- cross-tab sync/reset/clear paths, including invalid and unreadable theme storage
-- the same invalid/unreadable fallback rules under both light and dark system-theme contexts
-
-## Catalog Copy
-
-Visible catalog counts are intentionally derived from the runtime catalog instead of being maintained as unrelated literals:
-
-- Hero subtitle and hero stat max labels
-- Modules panel description
-- Footer catalog count
-- Page meta description
-
-The fast static check validates the source `index.html`/`manifest.json` copy against the actual module, mission, and tool counts, and the browser regression covers the live DOM rendering.
-Those visible counts intentionally follow the rendered module entries, while duplicate ids and other catalog-shape problems are handled by the separate catalog-integrity checks.
-
-## Catalog Integrity
-
-The catalog is treated as a contract, not just loose content:
-
-- Tool ids are expected to stay unique across all modules.
-- Every tool id is expected to have a matching slug entry.
-- Mission steps are expected to reference only known tool ids.
-- The slug map is expected not to contain entries for tools that are no longer in the catalog.
-
-`validateCatalogIntegrity()` still warns at runtime, but the fast static check and regression command now also fail fast on these mismatches so catalog drift is caught before shipping.
-
-## Module And Stats Semantics
-
-Two UI conventions are intentionally stable:
-
-- In the modules panel, `✓ 已用` takes precedence over `↺ 已恢复` when both metric history and restored task progress exist for the same tool.
-- In the stats panel, empty-state copy distinguishes between self-metrics-only activity, restored progress without tool history, and fully empty storage.
-
-## Public Helper Contracts
-
-The dashboard exposes a few storage-facing helpers to the page. Their behavior is intentionally fail-fast:
-
-- `getManagedStorageSnapshot()` throws `snapshot_failed` when managed storage is unreadable or structurally unsafe.
-- `getBackupStorageSnapshot()` throws `snapshot_failed` when backup/export-critical storage is unreadable or unsafe.
-- `buildExportPayload()` throws `snapshot_failed` instead of emitting partial backup data.
-- `pmMetrics.getSummary()` reports `storage_readable: false` with `null` counts when the stored event log cannot be trusted.
-- `pmMetrics.exportEvents()` throws `snapshot_failed` on corrupt or unreadable event storage.
-
-## PWA Notes
-
-The service worker caches the standalone shell and shared assets needed for offline reload:
-
-- `index.html`
-- `styles.css`
-- `app.js`
-- `pm-metrics.js`
-- `shared/dark-toggle.js`
-- `shared/toast.js`
-- `manifest.json`
-- icon assets
-
-The browser regression verifies old same-prefix caches are cleaned up on activation.
-The fast static check verifies that `sw.js` `CORE_ASSETS` stays aligned with asset references in `index.html` and icon entries in `manifest.json`.
-It also treats manifest `id`, `start_url`, and `scope` as part of the offline contract: they are expected to stay relative so standalone launch and cache coverage remain aligned.
+*最后更新：2026 年*
