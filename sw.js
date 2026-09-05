@@ -8,7 +8,7 @@
  * 3. 网络优先 (Network-First) 获取 API 请求
  * 4. 离线回退页面
  */
-const CACHE_NAME = "journalism-tool-v1";
+const CACHE_NAME = "journalism-tool-P00-v2";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -72,6 +72,7 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         }).catch(() => {});
+        event.waitUntil(fetchPromise);
         return cached;
       }
       return fetch(event.request).then((response) => {
