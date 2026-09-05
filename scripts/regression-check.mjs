@@ -3713,7 +3713,7 @@ async function run() {
       const page = await createReadyPage(context, origin);
       try {
         const result = await page.evaluate(({ missionId, progressKey }) => {
-          const moduleName = "新闻伦理与实务";
+          const moduleName = "新闻传播中的AI伦理";
           const metricToolId = "P27";
           const metricSlug = TOOL_SLUGS[metricToolId];
           localStorage.clear();
@@ -3747,8 +3747,8 @@ async function run() {
             width: progressFill instanceof HTMLElement ? progressFill.style.width : ""
           };
         }, { missionId: ETHICS_MISSION_ID, progressKey: PROGRESS_KEY });
-        assert(result.descText.includes("(2/10 已涉及)"), `Module card should dedupe restored and metric-backed tools when computing the involved count: ${JSON.stringify(result)}`);
-        assert(result.width === "20%", `Module card progress width should reflect the deduped involved count within the module: ${JSON.stringify(result)}`);
+        assert(result.descText.includes("(2/4 已涉及)"), `Chapter card should dedupe restored and metric-backed tools when computing the involved count: ${JSON.stringify(result)}`);
+        assert(result.width === "50%", `Chapter card progress width should reflect the deduped involved count within the chapter: ${JSON.stringify(result)}`);
         return passedCase("moduleCardProgressCountCase");
       } finally {
         await page.close();
@@ -3968,7 +3968,7 @@ async function run() {
             statDwell: document.getElementById("statDwell")?.textContent || ""
           };
         }, { eventsKey: DASHBOARD_EVENTS_KEY, missionId: ETHICS_MISSION_ID, progressKey: PROGRESS_KEY });
-        assert(result.statModules === "2", `Hero modules-started count drifted from combined progress/metric state: ${JSON.stringify(result)}`);
+        assert(result.statModules === "3", `Hero chapters-started count drifted from combined progress/metric state under the textbook chapter catalog (P31/P27 -> ch14, P46 -> ch6, P11 -> ch5): ${JSON.stringify(result)}`);
         assert(result.statTasks === "1", `Hero completed-task count drifted from completed mission state: ${JSON.stringify(result)}`);
         assert(result.statTools === String(result.expectedTools), `Hero used-tools count drifted from combined progress/metric state: ${JSON.stringify(result)}`);
         assert(result.statDwell === "3s", `Hero dwell summary drifted from aggregated dashboard/tool dwell events: ${JSON.stringify(result)}`);

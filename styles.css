@@ -47,7 +47,7 @@
 .mc-complete h3::after { content: " ✅"; }
 
 /* Module Cards */
-.module-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.module-grid, .chapter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .module-card {
   background: var(--card); border-radius: var(--radius-md); padding: 20px;
   box-shadow: var(--shadow-card); transition: transform 0.2s ease;
@@ -143,7 +143,7 @@
   .tab { padding: 13px 14px; font-size: 0.85rem; min-height: 44px; }
   .mission-card { padding: 18px; }
   .mission-card .mc-meta { gap: 8px; }
-  .module-grid { grid-template-columns: 1fr; }
+  .module-grid, .chapter-grid { grid-template-columns: 1fr; }
   .modal { padding: 20px; margin: 8px; }
   .modal-actions { flex-direction: column; }
   .actions-card { flex-direction: column; }
@@ -345,3 +345,43 @@ details.teach-card[open] summary { margin-bottom: 4px; }
     .hero { background: var(--card, #fff); }
   }
 }
+
+/* =====================================================================
+ * 教材章节视图（对齐《新闻传播AI应用教程》四篇十六章）
+ * 学习模块 Tab：按篇分组（part-group），章卡片含章号徽标、tierNote、
+ * 工具 chips（★ = 教材官方实验工具 Tier 1/2，无标记 = 拓展工具）。
+ * 仅使用 design-tokens.css 既有变量，暗色模式自动跟随。
+ * ===================================================================== */
+.part-stack { display: grid; gap: 32px; }
+.part-header { border-bottom: 2px solid var(--line); padding-bottom: 10px; }
+.part-title { margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--accent); letter-spacing: 0.01em; }
+.part-subtitle { margin: 4px 0 0; font-size: 0.86rem; color: var(--ink-secondary); line-height: 1.5; }
+.part-group .chapter-grid { margin-top: 14px; }
+.chapter-badge {
+  display: inline-block; background: var(--accent); color: #fff;
+  font-size: 0.72rem; font-weight: 700; line-height: 1.4;
+  padding: 2px 9px; border-radius: var(--radius-pill); margin-right: 7px;
+  vertical-align: 2px; white-space: nowrap;
+}
+.general-tag {
+  display: inline-block; margin-left: 7px; padding: 1px 8px;
+  font-size: 0.68rem; font-weight: 600; vertical-align: 2px; white-space: nowrap;
+  color: var(--ok); background: var(--ok-light); border-radius: var(--radius-pill);
+}
+.tier-note-line { margin: 0 0 8px; }
+.tier-note {
+  display: inline-block; font-size: 0.7rem; font-weight: 600;
+  color: var(--warn); background: var(--warn-light);
+  padding: 2px 9px; border-radius: var(--radius-pill);
+  font-variant-numeric: tabular-nums;
+}
+.module-card.appendix-card { border: 1.5px dashed var(--line); }
+.module-card .tool-chips { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.tool-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--radius-pill);
+  font-size: 0.78rem; background: var(--accent-light); max-width: 100%;
+}
+.tier-star { color: var(--warn); font-size: 0.78rem; line-height: 1; }
+.tool-chip .tool-link { font-weight: 600; white-space: nowrap; }
+.tool-chip .tool-used, .tool-chip .tool-restored { flex-shrink: 0; }

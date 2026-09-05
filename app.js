@@ -4,61 +4,170 @@
  */
 const SITE_BASE = "https://yuuqq.github.io";
 
-// ===== 5 大学习模块 =====
+// ===== 教材章节目录（对齐《新闻传播AI应用教程》四篇十六章） =====
+// part 分组名与副标题取自教材篇章结构；tools 保持平铺结构以兼容
+// VALID_TOOL_IDS / 学习画像统计 / 目录完整性校验。
+// tier 取值："Tier 1"（教材正文实验直接使用）/"Tier 2"（实验使用或延伸推荐）/"拓展"（拓展工具）。
+const TEXTBOOK_PARTS = [
+  { key: "篇Ⅰ 认知篇", subtitle: "建立认知坐标与对话能力" },
+  { key: "篇Ⅱ 方法篇", subtitle: "以数据为对象的方法实践" },
+  { key: "篇Ⅲ 实操篇", subtitle: "以新闻产品为对象的工具实操" },
+  { key: "篇Ⅳ 治理篇", subtitle: "治理/素养/系统/未来" }
+];
 const MODULES = [
   {
-    id: "mod-ai", emoji: "🤖", name: "AI 内容生产与审核",
-    desc: "掌握 AI 辅助内容的识别、核验与合理使用",
+    chapter: "第2章", name: "人机协同的理论框架", part: "篇Ⅰ 认知篇",
+    tierNote: "拓展×1",
+    desc: "理解人机分工与协同边界，建立对 AI 能力与局限的认知坐标。",
     tools: [
-      { id: "P01", name: "多模型对比器" }, { id: "P06", name: "提示词构建器" },
-      { id: "P09", name: "SSML 语音编辑器" }, { id: "P10", name: "AIGC 检测仪" },
-      { id: "P07", name: "微信排版器" }, { id: "P34", name: "聊天式报告" },
-      { id: "P04", name: "术语粉碎机" }, { id: "P05", name: "可读性检测" },
-      { id: "P03", name: "语音转文字" }, { id: "P41", name: "Agent 门户" }
+      { id: "P08", name: "AI 幻觉错题本", tier: "拓展" }
     ]
   },
   {
-    id: "mod-data", emoji: "📊", name: "数据可视化与验证",
-    desc: "从数据清洗到可视化呈现的完整素养链",
+    chapter: "第4章", name: "提示词工程学", part: "篇Ⅰ 认知篇",
+    tierNote: "拓展×1",
+    desc: "掌握结构化提示词的设计方法，学会与 AI 高效对话。",
     tools: [
-      { id: "P11", name: "CSV 清洗器" }, { id: "P12", name: "本福特检测" },
-      { id: "P13", name: "桑基图" }, { id: "P14", name: "新闻时间轴" },
-      { id: "P16", name: "预算树图" }, { id: "P18", name: "竞速柱图" },
-      { id: "P20", name: "词云" }, { id: "P15", name: "故事地图" },
-      { id: "P47", name: "漏斗计算" }, { id: "P40", name: "S 曲线模拟" }
+      { id: "P06", name: "提示词构建器", tier: "拓展" }
     ]
   },
   {
-    id: "mod-osint", emoji: "🔍", name: "OSINT 开源调查",
-    desc: "图片溯源、地理定位、数字取证等调查技术",
+    chapter: "第5章", name: "新闻数据的获取与管理", part: "篇Ⅱ 方法篇",
+    tierNote: "Tier 1×2",
+    desc: "完成从数据获取、清洗到质量校验的规范数据流程。",
     tools: [
-      { id: "P21", name: "EXIF 检测" }, { id: "P22", name: "阴影地理验证" },
-      { id: "P23", name: "Dork 构建器" }, { id: "P24", name: "反向搜图" },
-      { id: "P25", name: "Wayback 时光机" }, { id: "P26", name: "水军雷达" },
-      { id: "P28", name: "Deepfake 放大镜" }, { id: "P30", name: "交叉核验" },
-      { id: "P50", name: "OSINT 书签" }, { id: "P17", name: "前后对比" }
+      { id: "P11", name: "CSV 清洗器", tier: "Tier 1" },
+      { id: "P12", name: "本福特检测", tier: "Tier 1" }
     ]
   },
   {
-    id: "mod-think", emoji: "🧠", name: "批判性思维训练",
-    desc: "识别逻辑谬误、对抗信息茧房、培养独立判断",
+    chapter: "第6章", name: "网络信息自动采集", part: "篇Ⅱ 方法篇",
+    tierNote: "拓展×3",
+    desc: "用自动化方式合法采集与存档网络信息，打通数据入口。",
     tools: [
-      { id: "P08", name: "AI 幻觉错题本" }, { id: "P29", name: "谬误连连看" },
-      { id: "P35", name: "信息茧房迷宫" }, { id: "P37", name: "沉默螺旋" },
-      { id: "P39", name: "打字防御战" }, { id: "P48", name: "闪卡训练" },
-      { id: "P33", name: "主编划重点" }, { id: "P19", name: "调色板测试" },
-      { id: "P36", name: "视障模式" }, { id: "P38", name: "VR 新闻" }
+      { id: "P25", name: "Wayback 时光机", tier: "拓展" },
+      { id: "P46", name: "FOIA 生成器", tier: "拓展" },
+      { id: "P49", name: "RSS 报纸", tier: "拓展" }
     ]
   },
   {
-    id: "mod-ethics", emoji: "⚖️", name: "新闻伦理与实务",
-    desc: "隐私保护、信息公开、伦理决策与职业规范",
+    chapter: "第7章", name: "社交媒体数据挖掘", part: "篇Ⅱ 方法篇",
+    tierNote: "Tier 2×1",
+    desc: "从社交平台互动数据中识别协同行为与传播模式。",
     tools: [
-      { id: "P31", name: "伦理分叉" }, { id: "P27", name: "隐私条款高亮" },
-      { id: "P46", name: "FOIA 生成器" }, { id: "P45", name: "简报引擎" },
-      { id: "P42", name: "作品集" }, { id: "P43", name: "播客页面" },
-      { id: "P44", name: "翻页杂志" }, { id: "P49", name: "RSS 报纸" },
-      { id: "P32", name: "滚动叙事" }, { id: "P02", name: "情感分析" }
+      { id: "P26", name: "水军雷达", tier: "Tier 2" }
+    ]
+  },
+  {
+    chapter: "第8章", name: "非结构化信息的智能处理", part: "篇Ⅱ 方法篇",
+    tierNote: "Tier 1×2 · 拓展×3",
+    desc: "把文本、语音等非结构化信息转化为可分析的结构化数据。",
+    tools: [
+      { id: "P02", name: "情感分析", tier: "Tier 1" },
+      { id: "P05", name: "可读性检测", tier: "Tier 1" },
+      { id: "P03", name: "语音转文字", tier: "拓展" },
+      { id: "P04", name: "术语粉碎机", tier: "拓展" },
+      { id: "P09", name: "SSML 语音编辑器", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "第9章", name: "AIGC与新闻写作", part: "篇Ⅲ 实操篇",
+    tierNote: "Tier 1×2 · 拓展×3",
+    desc: "在人机协同中完成从选题、生成到审核的 AIGC 写作流程。",
+    tools: [
+      { id: "P01", name: "多模型对比器", tier: "Tier 1" },
+      { id: "P10", name: "AIGC 检测仪", tier: "Tier 1" },
+      { id: "P07", name: "微信排版器", tier: "拓展" },
+      { id: "P28", name: "Deepfake 放大镜", tier: "拓展" },
+      { id: "P34", name: "聊天式报告", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "第10章", name: "数据新闻可视化实践", part: "篇Ⅲ 实操篇",
+    tierNote: "Tier 1×3 · 拓展×5",
+    desc: "用图表讲好数据故事，兼顾准确、清晰与无障碍表达。",
+    tools: [
+      { id: "P13", name: "桑基图", tier: "Tier 1" },
+      { id: "P14", name: "新闻时间轴", tier: "Tier 1" },
+      { id: "P15", name: "故事地图", tier: "Tier 1" },
+      { id: "P16", name: "预算树图", tier: "拓展" },
+      { id: "P18", name: "竞速柱图", tier: "拓展" },
+      { id: "P19", name: "调色板测试", tier: "拓展" },
+      { id: "P20", name: "词云", tier: "拓展" },
+      { id: "P36", name: "视障模式", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "第11章", name: "多媒体与沉浸式新闻", part: "篇Ⅲ 实操篇",
+    tierNote: "Tier 1×1 · Tier 2×1 · 拓展×2",
+    desc: "运用音视频、滚动叙事与 VR 形态做沉浸式新闻报道。",
+    tools: [
+      { id: "P17", name: "前后对比", tier: "Tier 1" },
+      { id: "P32", name: "滚动叙事", tier: "Tier 2" },
+      { id: "P38", name: "VR 新闻", tier: "拓展" },
+      { id: "P43", name: "播客页面", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "第12章", name: "新闻数字产品开发与上线", part: "篇Ⅲ 实操篇",
+    tierNote: "拓展×3",
+    desc: "把新闻内容做成可发布、可订阅的数字产品并完成上线。",
+    tools: [
+      { id: "P42", name: "作品集", tier: "拓展" },
+      { id: "P44", name: "翻页杂志", tier: "拓展" },
+      { id: "P45", name: "简报引擎", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "第13章", name: "事实核查与开源情报", part: "篇Ⅳ 治理篇",
+    tierNote: "Tier 1×2 · Tier 2×1 · 拓展×4",
+    desc: "掌握图像溯源、地理定位与多源交叉核验的 OSINT 方法。",
+    tools: [
+      { id: "P21", name: "EXIF 检测", tier: "Tier 1" },
+      { id: "P22", name: "阴影地理验证", tier: "Tier 1" },
+      { id: "P29", name: "谬误连连看", tier: "Tier 2" },
+      { id: "P23", name: "Dork 构建器", tier: "拓展" },
+      { id: "P24", name: "反向搜图", tier: "拓展" },
+      { id: "P30", name: "交叉核验", tier: "拓展" },
+      { id: "P50", name: "OSINT 书签", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "第14章", name: "新闻传播中的AI伦理", part: "篇Ⅳ 治理篇",
+    tierNote: "Tier 2×3 · 拓展×1",
+    desc: "在真实伦理困境中练习 AI 时代的新闻职业判断与规范。",
+    tools: [
+      { id: "P31", name: "伦理分叉", tier: "Tier 2" },
+      { id: "P33", name: "主编划重点", tier: "Tier 2" },
+      { id: "P37", name: "沉默螺旋", tier: "Tier 2" },
+      { id: "P27", name: "隐私条款高亮", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "第15章", name: "媒介素养与受众分析", part: "篇Ⅳ 治理篇",
+    tierNote: "Tier 2×2 · 拓展×2",
+    desc: "认识算法推荐环境下的受众行为，提升信息素养与判断力。",
+    tools: [
+      { id: "P35", name: "信息茧房迷宫", tier: "Tier 2" },
+      { id: "P40", name: "S 曲线模拟", tier: "Tier 2" },
+      { id: "P39", name: "打字防御战", tier: "拓展" },
+      { id: "P47", name: "漏斗计算", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "第16章", name: "AI工作系统与未来图景", part: "篇Ⅳ 治理篇",
+    tierNote: "拓展×1",
+    desc: "设计面向未来的人机协同新闻工作流，展望 AI 工作系统。",
+    tools: [
+      { id: "P41", name: "Agent 门户", tier: "拓展" }
+    ]
+  },
+  {
+    chapter: "附录C", name: "术语表配套", part: "篇Ⅳ 治理篇", tag: "全书通识",
+    tierNote: "拓展×1",
+    desc: "配合教材附录C 术语表的通识训练，巩固全书核心概念。",
+    tools: [
+      { id: "P48", name: "闪卡训练", tier: "拓展" }
     ]
   }
 ];
@@ -143,8 +252,9 @@ const MISSIONS = [
   }
 ];
 const MISSION_STEP_COUNTS = new Map(MISSIONS.map(mission => [mission.id, mission.steps.length]));
-const CATALOG_MODULE_COUNT = MODULES.length;
-// Visible catalog copy should reflect the rendered module entries even if
+// 章节分组数（14 个有工具的章 + 附录C 通识单元），与 index.html 占位文本保持一致。
+const CATALOG_CHAPTER_COUNT = MODULES.length;
+// Visible catalog copy should reflect the rendered chapter entries even if
 // catalog integrity regresses; duplicate/unknown ids are enforced separately.
 const CATALOG_TOOL_COUNT = MODULES.flatMap(module => module.tools).length;
 const CATALOG_MISSION_COUNT = MISSIONS.length;
@@ -1652,17 +1762,17 @@ function validateCatalogIntegrity() {
 function syncCatalogCopy() {
   const heroSubtitle = document.getElementById("heroSubtitle");
   if (heroSubtitle) {
-    heroSubtitle.textContent = `${CATALOG_MODULE_COUNT} 大模块 · ${CATALOG_TOOL_COUNT} 个工具 · 案例驱动的实战训练`;
+    heroSubtitle.textContent = `四篇十六章 · ${CATALOG_TOOL_COUNT} 个工具 · 案例驱动的实战训练`;
   }
 
   const metaDescription = document.querySelector('meta[name="description"]');
   if (metaDescription) {
-    metaDescription.setAttribute("content", `新闻素养学习中枢 — ${CATALOG_MODULE_COUNT} 大模块 · ${CATALOG_TOOL_COUNT} 个工具 · 案例任务链驱动的实战训练`);
+    metaDescription.setAttribute("content", `新闻素养学习中枢 — 四篇十六章 · ${CATALOG_TOOL_COUNT} 个工具 · 案例任务链驱动的实战训练`);
   }
 
   const modulesDesc = document.getElementById("modulesDesc");
   if (modulesDesc) {
-    modulesDesc.innerHTML = `${CATALOG_TOOL_COUNT} 个工具按新闻素养核心能力分为 ${CATALOG_MODULE_COUNT} 大模块。点击工具名直接打开。<code>✓ 已用</code> 表示已有工具事件记录，<code>↺ 已恢复</code> 表示该工具状态来自任务进度恢复。`;
+    modulesDesc.innerHTML = `${CATALOG_TOOL_COUNT} 个工具对齐《新闻传播AI应用教程》四篇十六章结构，按篇分组、按章练习。<code>★</code> 为教材官方实验工具（Tier 1 正文实验 / Tier 2 实验使用或延伸推荐），无标记为拓展工具。点击工具名直接打开。<code>✓ 已用</code> 表示已有工具事件记录，<code>↺ 已恢复</code> 表示该工具状态来自任务进度恢复。`;
   }
 
   const footerCatalogText = document.getElementById("footerCatalogText");
@@ -1672,7 +1782,7 @@ function syncCatalogCopy() {
 
   const statModulesLabel = document.getElementById("statModulesLabel");
   if (statModulesLabel) {
-    statModulesLabel.textContent = `/${CATALOG_MODULE_COUNT} 模块`;
+    statModulesLabel.textContent = `/${CATALOG_CHAPTER_COUNT} 章节`;
   }
   const statTasksLabel = document.getElementById("statTasksLabel");
   if (statTasksLabel) {
@@ -1684,20 +1794,23 @@ function syncCatalogCopy() {
   }
 }
 
-// ===== 渲染模块 =====
+// ===== 渲染模块（按教材四篇分组、按章呈现） =====
 function renderModules() {
   const grid = document.getElementById("moduleGrid");
   const used = getToolsUsed();
   const metricsUsed = getMetricDerivedToolIds();
   const progressUsed = getProgressDerivedToolIds();
-  grid.innerHTML = MODULES.map(mod => {
+  const renderChapterCard = mod => {
     const usedCount = mod.tools.filter(t => used.has(t.id)).length;
     const pct = Math.round((usedCount / mod.tools.length) * 100);
-    return `<div class="module-card">
-      <h3>${mod.emoji} ${mod.name}</h3>
+    const isAppendix = !!mod.tag;
+    const generalTag = isAppendix ? ` <span class="general-tag">${mod.tag}</span>` : "";
+    return `<div class="module-card${isAppendix ? " appendix-card" : ""}">
+      <h3><span class="chapter-badge">${mod.chapter}</span>${mod.name}${generalTag}</h3>
+      <p class="tier-note-line"><span class="tier-note">${mod.tierNote}</span></p>
       <p class="mod-desc">${mod.desc} <small>(${usedCount}/${mod.tools.length} 已涉及)</small></p>
       <div class="mod-progress"><div class="mod-progress-fill" style="width:${pct}%"></div></div>
-      <ul class="tool-list">${mod.tools.map(t => {
+      <ul class="tool-chips">${mod.tools.map(t => {
         const slug = getToolSlug(t.id);
         const hasMetrics = metricsUsed.has(t.id);
         const hasProgress = progressUsed.has(t.id);
@@ -1706,12 +1819,23 @@ function renderModules() {
           : hasProgress
           ? '<span class="tool-restored" title="来自任务进度恢复" aria-label="已恢复：状态来自任务进度恢复">↺ 已恢复</span>'
           : '';
-        return `<li>
-          <a href="${SITE_BASE}/${t.id}-${slug}/" target="_blank" rel="noopener noreferrer" aria-label="${t.id} ${t.name}，在新标签页打开" class="tool-link" data-tool-id="${t.id}">${t.id} ${t.name}</a>
-          ${statusBadge}
-        </li>`;
+        const tierStar = t.tier === "拓展"
+          ? ''
+          : '<span class="tier-star" title="教材官方实验工具" aria-label="教材官方实验工具">★</span>';
+        return `<li class="tool-chip">${tierStar}<a href="${SITE_BASE}/${t.id}-${slug}/" target="_blank" rel="noopener noreferrer" aria-label="${t.id} ${t.name}，在新标签页打开" class="tool-link" data-tool-id="${t.id}">${t.id} ${t.name}</a>${statusBadge}</li>`;
       }).join("")}</ul>
     </div>`;
+  };
+  grid.innerHTML = TEXTBOOK_PARTS.map(part => {
+    const chapters = MODULES.filter(mod => mod.part === part.key);
+    if (!chapters.length) return "";
+    return `<section class="part-group" aria-label="${part.key}：${part.subtitle}">
+      <header class="part-header">
+        <h3 class="part-title">${part.key}</h3>
+        <p class="part-subtitle">${part.subtitle}</p>
+      </header>
+      <div class="chapter-grid">${chapters.map(renderChapterCard).join("")}</div>
+    </section>`;
   }).join("");
 }
 
