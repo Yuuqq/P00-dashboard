@@ -12,11 +12,18 @@ const CACHE_NAME = "journalism-tool-v1";
 const CORE_ASSETS = [
   "./",
   "./index.html",
+  "./manifest.json",
+  "./icon.svg",
+  "./icon-32.png",
+  "./icon-192.png",
+  "./icon-512.png",
+  "./apple-touch-icon.png",
   "./styles.css",
   "./app.js",
   "./pm-metrics.js",
-  "../shared/design-tokens.css",
-  "../shared/dark-toggle.js"
+  "./shared/design-tokens.css",
+  "./shared/toast.js",
+  "./shared/dark-toggle.js"
 ];
 
 // Install: Pre-cache core assets
