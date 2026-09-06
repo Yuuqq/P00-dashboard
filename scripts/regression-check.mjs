@@ -82,14 +82,18 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function assertThemeUiState(result, { theme, buttonLabel, buttonPressed, storedThemeRaw }, prefix) {
+function assertThemeUiState(result, { theme, buttonLabel, buttonPressed, storedThemeRaw, managed = true }, prefix) {
   assert(result.theme === theme, `${prefix} did not update the data-theme attribute: ${JSON.stringify(result)}`);
   assert(result.colorScheme === theme, `${prefix} did not update color-scheme: ${JSON.stringify(result)}`);
   assert(result.buttonText === (theme === "dark" ? "☀️" : "🌙"), `${prefix} did not update the dark-toggle button glyph: ${JSON.stringify(result)}`);
   assert(result.buttonLabel === buttonLabel, `${prefix} did not update the dark-toggle button label: ${JSON.stringify(result)}`);
   assert(result.buttonPressed === buttonPressed, `${prefix} did not update the dark-toggle button pressed state: ${JSON.stringify(result)}`);
-  assert(result.themeColor === result.bg, `${prefix} did not keep theme-color aligned with the active background token: ${JSON.stringify(result)}`);
-  assert(result.themeColorMedia === "", `${prefix} should keep only the active theme-color meta without media after updates: ${JSON.stringify(result)}`);
+  if (managed === false) {
+    assert(result.themeColor === "#f4f0e8" && result.themeColorMedia === "(prefers-color-scheme: light)", `${prefix} should preserve the authored light-first theme-color media pair while no explicit preference is stored: ${JSON.stringify(result)}`);
+  } else {
+    assert(result.themeColor === result.bg, `${prefix} did not keep theme-color aligned with the active background token: ${JSON.stringify(result)}`);
+    assert(result.themeColorMedia === "", `${prefix} should keep only the active theme-color meta without media after updates: ${JSON.stringify(result)}`);
+  }
   if (storedThemeRaw !== undefined) {
     assert(result.storedThemeRaw === storedThemeRaw, `${prefix} did not preserve the expected stored theme preference state: ${JSON.stringify(result)}`);
   }
@@ -99,21 +103,23 @@ function passedCase(name) {
   return { name, status: "passed" };
 }
 
-function lightThemeExpectation(storedThemeRaw) {
+function lightThemeExpectation(storedThemeRaw, managed = true) {
   return {
     theme: "light",
     buttonLabel: "切换到暗色模式",
     buttonPressed: "false",
-    storedThemeRaw
+    storedThemeRaw,
+    managed
   };
 }
 
-function darkThemeExpectation(storedThemeRaw) {
+function darkThemeExpectation(storedThemeRaw, managed = true) {
   return {
     theme: "dark",
     buttonLabel: "切换到亮色模式",
     buttonPressed: "true",
-    storedThemeRaw
+    storedThemeRaw,
+    managed
   };
 }
 
@@ -2401,8 +2407,8 @@ async function run() {
           const after = readThemeColorState();
           return { before, after };
         });
-        assert(result.before.count === 1, `Theme-color init should collapse source meta tags down to one active tag: ${JSON.stringify(result)}`);
-        assert(result.before.media === "", `Active theme-color meta should not keep a media attribute after init: ${JSON.stringify(result)}`);
+        assert(result.before.count === 2, `First visit without a stored preference should keep the authored dual media-query theme-color metas: ${JSON.stringify(result)}`);
+        assert(result.before.media === "(prefers-color-scheme: light)", `Untoggled theme-color pair should keep the light media attribute for OS auto-switching: ${JSON.stringify(result)}`);
         assert(result.before.content === result.before.bg, `Active theme-color meta did not match the current background token before toggle: ${JSON.stringify(result)}`);
         assert(result.after.count === 1, `Theme-color toggle should keep exactly one active meta tag: ${JSON.stringify(result)}`);
         assert(result.after.media === "", `Active theme-color meta should not regain a media attribute after toggle: ${JSON.stringify(result)}`);
@@ -3404,19 +3410,19 @@ async function run() {
       {
         name: "startupUnreadableThemeFallbackCase",
         options: { colorScheme: "light", unreadableThemeSeed: "dark" },
-        expected: lightThemeExpectation("__unreadable__"),
+        expected: lightThemeExpectation("__unreadable__", false),
         prefix: "Startup unreadable theme storage"
       },
       {
         name: "startupUnreadableThemeSystemDarkCase",
         options: { systemTheme: "dark", unreadableThemeSeed: "dark" },
-        expected: darkThemeExpectation("__unreadable__"),
+        expected: darkThemeExpectation("__unreadable__", false),
         prefix: "Startup unreadable theme storage with dark system theme"
       },
       {
         name: "noMatchMediaStartupCase",
         options: { noMatchMedia: true },
-        expected: lightThemeExpectation(null),
+        expected: lightThemeExpectation(null, false),
         prefix: "No-matchMedia startup"
       },
       {
@@ -3428,7 +3434,7 @@ async function run() {
       {
         name: "noMatchMediaUnreadableThemeFallbackCase",
         options: { noMatchMedia: true, unreadableThemeSeed: "dark" },
-        expected: lightThemeExpectation("__unreadable__"),
+        expected: lightThemeExpectation("__unreadable__", false),
         prefix: "No-matchMedia unreadable theme storage"
       },
       {
@@ -3503,7 +3509,7 @@ async function run() {
 
     results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
       return withPagePair(createPagePair(context, origin), async ({ pageA, pageB }) => {
-        await assertCrossTabUnreadableThemeFallback(pageA, pageB, lightThemeExpectation("__unreadable__"), "Cross-tab unreadable theme storage");
+        await assertCrossTabUnreadableThemeFallback(pageA, pageB, lightThemeExpectation("__unreadable__", false), "Cross-tab unreadable theme storage");
         return passedCase("crossTabUnreadableThemeFallbackCase");
       });
     }));
@@ -3519,7 +3525,7 @@ async function run() {
 
     results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
       return withPagePair(createNoMatchMediaPagePair(context, origin), async ({ pageA, pageB }) => {
-        await assertCrossTabUnreadableThemeFallback(pageA, pageB, lightThemeExpectation("__unreadable__"), "No-matchMedia cross-tab unreadable theme storage");
+        await assertCrossTabUnreadableThemeFallback(pageA, pageB, lightThemeExpectation("__unreadable__", false), "No-matchMedia cross-tab unreadable theme storage");
         return passedCase("noMatchMediaCrossTabUnreadableThemeCase");
       });
     }));
@@ -3547,7 +3553,7 @@ async function run() {
         await switchMockSystemTheme(page, "dark");
         const result = await readThemeState(page);
         assert(before.theme === "light" && before.storedThemeRaw === null, `Mocked system-theme setup should start in light mode without a stored preference: ${JSON.stringify(before)}`);
-        assertThemeUiState(result, darkThemeExpectation(null), "System theme changes");
+        assertThemeUiState(result, darkThemeExpectation(null, false), "System theme changes");
         return passedCase("systemThemeFollowCase");
       });
     }));
@@ -3556,7 +3562,7 @@ async function run() {
       return withPage(createSystemThemePage(context, origin, "light", { unreadableThemeSeed: "dark" }), async (page) => {
         const before = await readThemeState(page);
         await switchMockSystemTheme(page, "dark");
-        await assertCurrentThemeState(page, darkThemeExpectation("__unreadable__"), "System theme changes with unreadable stored theme");
+        await assertCurrentThemeState(page, darkThemeExpectation("__unreadable__", false), "System theme changes with unreadable stored theme");
         assert(before.theme === "light" && before.storedThemeRaw === "__unreadable__", `Unreadable stored theme should be treated as missing before the mocked system theme change: ${JSON.stringify(before)}`);
         return passedCase("systemThemeUnreadableStoredCase");
       });
@@ -3574,7 +3580,7 @@ async function run() {
 
     results.push(await runIsolatedCase(browser, server.origin, async (context, origin) => {
       return withPage(createSystemThemePage(context, origin, "dark"), async (page) => {
-        await assertCurrentThemeState(page, darkThemeExpectation(null), "Startup system dark theme");
+        await assertCurrentThemeState(page, darkThemeExpectation(null, false), "Startup system dark theme");
         return passedCase("startupSystemDarkThemeCase");
       });
     }));
@@ -3587,7 +3593,7 @@ async function run() {
         const registration = await readMockSystemThemeRegistration(page);
         assert(before?.addEventListenerCount === 0 && before?.addListenerCount === 1, `Legacy system-theme setup should register exactly one addListener handler and no addEventListener handlers: ${JSON.stringify(before)}`);
         assert(registration?.addEventListenerCount === 0 && registration?.addListenerCount === 1, `Legacy system-theme registration counts drifted after the mocked theme change: ${JSON.stringify(registration)}`);
-        assertThemeUiState(result, darkThemeExpectation(null), "Legacy addListener system theme changes");
+        assertThemeUiState(result, darkThemeExpectation(null, false), "Legacy addListener system theme changes");
         return passedCase("systemThemeLegacyListenerCase");
       });
     }));
@@ -4004,7 +4010,7 @@ async function run() {
           };
         });
         assert(result.seeded === true, `Old cache seed did not run before service worker activation: ${JSON.stringify(result)}`);
-        assert(result.cacheNames.includes("journalism-tool-p00-v2"), `Current service worker cache missing after activation: ${JSON.stringify(result.cacheNames)}`);
+        assert(result.cacheNames.includes("journalism-tool-P00-v2"), `Current service worker cache missing after activation: ${JSON.stringify(result.cacheNames)}`);
         assert(!result.cacheNames.includes("journalism-tool-p00-old"), `Old prefixed cache was not removed on service worker activation: ${JSON.stringify(result.cacheNames)}`);
         return passedCase("serviceWorkerCacheCleanupCase");
       } finally {
@@ -4058,13 +4064,13 @@ async function run() {
             manifestIcon: manifest?.icons?.[0]?.src || ""
           };
         }, OFFLINE_FETCH_ASSETS);
-        assert(result.title === "新闻素养学习中枢", `Offline reload title mismatch: ${result.title}`);
+        assert(result.title === "P00 新闻素养学习中枢", `Offline reload title mismatch: ${result.title}`);
         assert(result.heroText.includes("新闻素养学习中枢"), `Offline reload hero mismatch: ${result.heroText}`);
         assert(result.darkTogglePresent === true, `Offline shell did not initialize shared dark-toggle UI: ${JSON.stringify(result)}`);
         assert(result.themeBefore !== result.themeAfter, `Offline dark-toggle interaction did not update theme state: ${JSON.stringify(result)}`);
         assert(result.toastPresent === true, `Offline toast UI did not render after reload: ${JSON.stringify(result)}`);
         assert(result.manifestOk && result.manifestStatus === 200, `Offline manifest fetch failed: ${JSON.stringify(result)}`);
-        assert(result.manifestName === "新闻素养学习中枢" && result.manifestIcon === "./icon-192.png", `Offline manifest contents were not cached correctly: ${JSON.stringify(result)}`);
+        assert(result.manifestName === "P00 新闻素养学习中枢" && result.manifestIcon === "./icon-192.png", `Offline manifest contents were not cached correctly: ${JSON.stringify(result)}`);
         OFFLINE_FETCH_ASSETS.forEach((asset) => {
           const info = result.assetFetches?.[asset];
           assert(!!info && info.ok && info.status === 200 && info.bytes > 0, `Offline core asset fetch failed for ${asset}: ${JSON.stringify(result)}`);
