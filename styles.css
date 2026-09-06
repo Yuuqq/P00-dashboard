@@ -11,6 +11,14 @@
   width: 1px; background: var(--line); }
 .hero-stat strong { font-size: 1.5rem; color: var(--accent); display: block; font-weight: 800;
   margin-bottom: 4px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.1; }
+.hero-progress-note {
+  margin: 16px auto 0;
+  max-width: 52ch;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--ink-secondary);
+}
+.hero-progress-note strong { color: var(--ink); font-weight: 700; }
 
 /* Tabs */
 .tab-nav { display: flex; gap: 4px; margin: 28px 0 20px; border-bottom: 2px solid var(--line); overflow-x: auto; -webkit-overflow-scrolling: touch; }
