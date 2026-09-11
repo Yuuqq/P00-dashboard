@@ -201,9 +201,9 @@ assert(chapterGroups.length === new Set(chapterGroups).size, `Catalog chapter en
 assert(tierValues.length === toolIds.length && tierValues.every((tier) => ["Tier 1", "Tier 2", "拓展"].includes(tier)), `Every catalog tool must carry a Tier 1 / Tier 2 / 拓展 tier label: ${JSON.stringify({ toolIds: toolIds.length, tierValues: tierValues.length })}`);
 assert(indexSource.includes(`content="新闻素养学习中枢 — 四篇十六章 · ${toolIds.length} 个工具 · 案例任务链驱动的实战训练"`), "index.html meta description drifted from catalog counts");
 assert(indexSource.includes(`>四篇十六章 · ${toolIds.length} 个工具 · 案例驱动的实战训练<`), "index.html hero subtitle drifted from catalog counts");
-assert(indexSource.includes(`/${chapterGroups.length} 章节`), "index.html chapter stat placeholder drifted from catalog counts");
-assert(indexSource.includes(`/${missionIds.length} 任务`), "index.html mission stat placeholder drifted from catalog counts");
-assert(indexSource.includes(`/${toolIds.length} 涉及工具`), "index.html tool stat placeholder drifted from catalog counts");
+assert(indexSource.includes(`/${chapterGroups.length} 已学章节`), "index.html chapter stat placeholder drifted from catalog counts");
+assert(indexSource.includes(`/${missionIds.length} 已完成任务`), "index.html mission stat placeholder drifted from catalog counts");
+assert(indexSource.includes(`/${toolIds.length} 用过工具`), "index.html tool stat placeholder drifted from catalog counts");
 assert(indexSource.includes(`${toolIds.length} 个工具对齐《新闻传播AI应用教程》四篇十六章结构，按篇分组、按章练习。`), "index.html modules description drifted from the textbook chapter contract");
 assert(indexSource.includes(`新闻素养工具集 · ${toolIds.length} 个项目 · `), "index.html footer catalog text drifted from catalog counts");
 assert(manifest.description === `新闻素养学习中枢 — 四篇十六章 · ${toolIds.length} 个工具、案例驱动的实战训练入口。`, `manifest description drifted from catalog counts: ${JSON.stringify(manifest.description)}`);
