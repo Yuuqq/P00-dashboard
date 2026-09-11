@@ -30,8 +30,8 @@ const CORE_ASSETS = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(CORE_ASSETS).catch(() => {
-        // Silently skip missing optional files
+      return cache.addAll(CORE_ASSETS).catch((err) => {
+        console.warn("Cache fail:", err);
         return Promise.allSettled(
           CORE_ASSETS.map((url) => cache.add(url).catch(() => {}))
         );

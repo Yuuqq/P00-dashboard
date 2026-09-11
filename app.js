@@ -2,7 +2,7 @@
  * P00 新闻素养学习中枢
  * 任务链引擎 · 模块系统 · 进度追踪 · 数据聚合
  */
-const SITE_BASE = "https://yuuqq.github.io";
+const SITE_BASE = (location.protocol === "file:" || location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "." : "https://yuuqq.github.io";
 
 // ===== 教材章节目录（对齐《新闻传播AI应用教程》四篇十六章） =====
 // part 分组名与副标题取自教材篇章结构；tools 保持平铺结构以兼容
@@ -1782,15 +1782,15 @@ function syncCatalogCopy() {
 
   const statModulesLabel = document.getElementById("statModulesLabel");
   if (statModulesLabel) {
-    statModulesLabel.textContent = `/${CATALOG_CHAPTER_COUNT} 章节`;
+    statModulesLabel.textContent = `/${CATALOG_CHAPTER_COUNT} 已学章节`;
   }
   const statTasksLabel = document.getElementById("statTasksLabel");
   if (statTasksLabel) {
-    statTasksLabel.textContent = `/${CATALOG_MISSION_COUNT} 任务`;
+    statTasksLabel.textContent = `/${CATALOG_MISSION_COUNT} 已完成任务`;
   }
   const statToolsLabel = document.getElementById("statToolsLabel");
   if (statToolsLabel) {
-    statToolsLabel.textContent = `/${CATALOG_TOOL_COUNT} 涉及工具`;
+    statToolsLabel.textContent = `/${CATALOG_TOOL_COUNT} 用过工具`;
   }
 }
 
