@@ -1,7 +1,7 @@
 /**
  * 羊皮纸手稿风 — CSS Lab 设计语言（教学门户方言）
  * 活标本：https://jou2327a.aisbest.eu.cc/parchment.css
- * 压过各工具本地 styles.css 中的蓝渐变 / 大圆角 / Inter。
+ * 必须在各工具 styles.css 之后加载，压过蓝渐变 / 大圆角 / Inter。
  */
 
 :root {
@@ -55,11 +55,21 @@
     }
 }
 
+/* 页面留白：四边 + 底部给浮动按钮让路 */
+html {
+    overflow-x: clip;
+}
+
 body {
     background: var(--bg) !important;
     color: var(--ink) !important;
     font-family: var(--hei) !important;
     line-height: 1.75 !important;
+    margin: 0 !important;
+    padding: 16px 16px 112px !important;
+    min-height: 100vh;
+    box-sizing: border-box;
+    overflow-x: clip;
 }
 
 body::before {
@@ -87,10 +97,14 @@ body::after {
 main, .app, .wrap, .container {
     position: relative;
     z-index: 1;
+    overflow: visible !important;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 main, .app {
     padding-top: 48px;
+    padding-bottom: 24px;
 }
 
 h1, h2, h3, .hero h1 {
@@ -101,6 +115,8 @@ h1, h2, h3, .hero h1 {
     background: none !important;
     -webkit-text-fill-color: unset !important;
     background-clip: unset !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .hero h1 .em,
@@ -130,19 +146,23 @@ a::after {
     padding: 28px 24px !important;
     margin-bottom: 22px !important;
     position: relative;
+    overflow: visible !important;
 }
 
 .hero::before {
     content: none !important;
 }
 
-/* 卡片 — 只打真实卡片，不打所有 section */
-.card, .panel, .teach-card, .mission-card, .module-card, .stat-card, article.panel {
+/* 卡片 — 只打真实卡片；overflow 可见以免裁切焦点环 / hover 上移 */
+.card, .panel, .teach-card, .mission-card, .module-card, .stat-card, article.panel,
+.drop-zone, .gps-map-card {
     background: var(--paper-3) !important;
     border: 1px solid var(--line) !important;
     border-radius: 6px !important;
     box-shadow: var(--shadow-card) !important;
-    overflow: visible;
+    overflow: visible !important;
+    padding: 16px 18px !important;
+    box-sizing: border-box;
 }
 
 .card:hover, .panel:hover, .mission-card:hover, .module-card:hover {
@@ -164,20 +184,33 @@ a::after {
     font-family: var(--kai);
 }
 
+p, li, label, .hint, .empty-hint, td, th, summary {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
 /* 主按钮：填墨。排除页签 / 浮动控件 */
 button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]):not(.filter-btn):not(.example-btn),
 .btn:not(.btn-secondary):not(.ghost),
-[type="submit"] {
+[type="submit"],
+.map-link {
     background: var(--ink) !important;
+    background-image: none !important;
     color: var(--paper-hi) !important;
     border: 1px solid var(--ink) !important;
     border-radius: 4px !important;
     box-shadow: var(--shadow-card) !important;
     font-weight: 600 !important;
+    padding: 8px 14px !important;
+    width: auto !important;
+    max-width: 100%;
+    box-sizing: border-box;
+    white-space: normal;
 }
 
 button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]):not(.filter-btn):not(.example-btn):hover,
-.btn:not(.btn-secondary):not(.ghost):hover {
+.btn:not(.btn-secondary):not(.ghost):hover,
+.map-link:hover {
     background: var(--ink-panel) !important;
     color: var(--paper-hi) !important;
     transform: translateY(-2px);
@@ -185,10 +218,13 @@ button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]):not(.filte
 
 .btn-secondary, button.secondary, .ghost, .example-btn {
     background: transparent !important;
+    background-image: none !important;
     color: var(--cinnabar) !important;
     border: 1px solid rgba(162, 64, 47, 0.55) !important;
     box-shadow: none !important;
     border-radius: 4px !important;
+    width: auto !important;
+    max-width: 100%;
 }
 
 .btn-secondary:hover, button.secondary:hover, .ghost:hover, .example-btn:hover {
@@ -201,16 +237,26 @@ button::after, .btn::after {
     content: none !important;
 }
 
+/* 压掉本地 styles 的胶囊圆角 / 蓝绿渐变 */
+button, .btn, [type="submit"], [type="button"], .map-link, .chip, .pill {
+    border-radius: 4px !important;
+}
+
 input, textarea, select {
     border: 1px solid var(--line) !important;
     border-radius: 4px !important;
     background: var(--paper-hi) !important;
     color: var(--ink) !important;
+    padding: 8px 12px !important;
+    box-sizing: border-box;
+    max-width: 100%;
 }
 
 input:focus, textarea:focus, select:focus {
     border-color: var(--cinnabar) !important;
     box-shadow: 0 0 0 3px var(--accent-light) !important;
+    outline: 2px solid var(--cinnabar) !important;
+    outline-offset: 2px !important;
 }
 
 .badge, .tag {
@@ -223,6 +269,8 @@ input:focus, textarea:focus, select:focus {
 table {
     border-collapse: collapse;
     border: 1.5px solid var(--line);
+    width: 100%;
+    max-width: 100%;
 }
 
 th {
@@ -235,6 +283,7 @@ th {
 
 td, th {
     border-bottom: 1px solid var(--line);
+    padding: 8px 10px !important;
 }
 
 tr:hover {
@@ -246,6 +295,8 @@ pre, code {
     border: 1px solid var(--line) !important;
     border-radius: 4px !important;
     font-family: var(--font-mono) !important;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
 }
 
 hr {
@@ -257,6 +308,7 @@ hr {
 img, video {
     border-radius: 4px;
     box-shadow: none;
+    max-width: 100%;
 }
 
 .progress-fill, .mc-bar-fill {
@@ -272,6 +324,15 @@ img, video {
 ::selection {
     background: rgba(162, 64, 47, 0.18) !important;
     color: var(--ink) !important;
+}
+
+/* 浮动控件避开主内容 */
+#darkToggleBtn,
+button[aria-label*="暗色"],
+button[aria-label*="导航"],
+.gnav-fab,
+[class*="dark-toggle"] {
+    z-index: 40 !important;
 }
 
 @keyframes inkIn {
@@ -291,18 +352,27 @@ img, video {
 }
 
 @media (max-width: 768px) {
+    body {
+        padding: 12px 12px 120px !important;
+    }
     .hero {
         outline-offset: 3px;
         padding: 20px 16px !important;
     }
-    button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]) {
-        width: auto;
+    .card, .panel, .teach-card, .drop-zone, .gps-map-card {
+        padding: 14px 14px !important;
+    }
+    /* 窄屏按钮不要无故撑满整行 */
+    button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]),
+    .btn, [type="submit"], [type="button"] {
+        width: auto !important;
         min-height: 44px;
+        max-width: 100%;
     }
 }
 
 @media print {
-    body { background: #fff !important; }
+    body { background: #fff !important; padding: 0 !important; }
     body::before, body::after { display: none !important; }
     .hero, .card, .panel {
         outline: none !important;

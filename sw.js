@@ -8,7 +8,7 @@
  * 3. 网络优先 (Network-First) 获取 API 请求
  * 4. 离线回退页面
  */
-const CACHE_NAME = "journalism-tool-P00-v2";
+const CACHE_NAME = "journalism-tool-P00-v3-parchment";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -19,6 +19,7 @@ const CORE_ASSETS = [
   "./icon-512.png",
   "./apple-touch-icon.png",
   "./styles.css",
+  "./modern-styles.css",
   "./app.js",
   "./pm-metrics.js",
   "./shared/design-tokens.css",
@@ -60,6 +61,26 @@ self.addEventListener("fetch", (event) => {
   // Skip non-GET and cross-origin API calls
   if (event.request.method !== "GET") return;
   if (url.origin !== self.location.origin) return;
+  const isStyleOrDoc =
+    event.request.destination === "document" ||
+    event.request.destination === "style" ||
+    url.pathname.endsWith(".html") ||
+    url.pathname.endsWith(".css");
+
+  if (isStyleOrDoc) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((c) => c || caches.match("./index.html")))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
