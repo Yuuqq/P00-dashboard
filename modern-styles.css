@@ -1,7 +1,7 @@
 /**
  * 羊皮纸手稿风 — CSS Lab 设计语言（教学门户方言）
  * 活标本：https://jou2327a.aisbest.eu.cc/parchment.css
- * 必须在各工具 styles.css 之后加载，压过蓝渐变 / 大圆角 / Inter。
+ * 在 design-tokens 之后、本地 styles.css 之前引入；关键视觉用 !important 压过蓝/绿渐变、大圆角与 Inter。边缘：内边距、圆角≤6px、焦点环、窄屏按钮、浮动钮让路。
  */
 
 :root {
