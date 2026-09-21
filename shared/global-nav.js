@@ -78,10 +78,14 @@
     const styleEl = document.createElement("style");
     styleEl.textContent = `
         .gnav-fab {
-            position: fixed; right: 16px; bottom: 16px; z-index: 9998;
-            width: 44px; height: 44px; border-radius: 50%; border: none;
-            background: var(--accent, #c7491f); color: #fff; cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            /* iOS safe-area: home indicator + landscape notch insets */
+            position: fixed;
+            right: calc(16px + env(safe-area-inset-right, 0px));
+            bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+            z-index: 9998;
+            width: 44px; height: 44px; border-radius: 4px; border: 1.5px solid var(--cinnabar, #A2402F);
+            background: var(--paper-hi, #F7EFDA); color: var(--cinnabar, #A2402F); cursor: pointer;
+            box-shadow: 0 2px 14px rgba(107,90,68,0.16);
             display: flex; align-items: center; justify-content: center;
             font-size: 18px; transition: transform .2s, box-shadow .2s;
         }
@@ -146,7 +150,7 @@
             background: var(--line, #eee); font-family: var(--font-mono, monospace); font-size: 10px;
         }
         @media (max-width: 600px) {
-            .gnav-fab { right: 12px; bottom: 12px; }
+            .gnav-fab { right: calc(12px + env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
             .gnav-overlay { padding-top: 40px; }
         }
         @media print { .gnav-fab, .gnav-overlay { display: none !important; } }

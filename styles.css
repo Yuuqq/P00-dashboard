@@ -2,7 +2,13 @@
 
 /* Hero */
 .hero { text-align: center; padding: clamp(36px, 5vw, 56px) 16px clamp(24px, 3vw, 32px); }
-.hero h1 { font-size: clamp(1.65rem, 1.2rem + 2.2vw, 2.4rem); margin: 0 0 10px; text-wrap: balance; line-height: 1.18; letter-spacing: -0.01em; }
+    .hero h1 {
+      font-size: clamp(1.65rem, 1.2rem + 2.2vw, 2.4rem);
+      margin: 0 0 10px;
+      text-wrap: balance;
+      line-height: 1.25;
+      letter-spacing: 0.08em;
+    }
 .subtitle { color: var(--ink-secondary); font-size: 1.05rem; margin: 0 auto 24px; letter-spacing: 0.02em; max-width: 52ch; line-height: 1.55; text-wrap: balance; }
 .hero-stats { display: flex; justify-content: center; gap: 0; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
 .hero-stat { font-size: 0.82rem; color: var(--ink-secondary); text-align: center; font-weight: 500;
