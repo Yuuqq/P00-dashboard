@@ -66,7 +66,7 @@ body {
     font-family: var(--hei) !important;
     line-height: 1.75 !important;
     margin: 0 !important;
-    padding: 16px 16px 112px !important;
+    padding: 16px 72px 112px 16px !important;
     min-height: 100vh;
     box-sizing: border-box;
     overflow-x: clip;
@@ -353,7 +353,7 @@ button[aria-label*="导航"],
 
 @media (max-width: 768px) {
     body {
-        padding: 12px 12px 120px !important;
+        padding: 12px 64px 120px 12px !important;
     }
     .hero {
         outline-offset: 3px;

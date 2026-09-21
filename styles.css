@@ -22,9 +22,9 @@
 .tab-nav { display: flex; gap: 4px; margin: 28px 0 20px; border-bottom: 2px solid var(--line); overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .tab { background: none; border: none; padding: 12px 20px; font-size: 0.9rem; font-weight: 600;
   color: var(--ink-secondary); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
-  transition: color 0.2s, border-color 0.2s, background 0.2s; white-space: nowrap; border-radius: 8px 8px 0 0; }
+  transition: color 0.2s, border-color 0.2s, background 0.2s; white-space: nowrap; border-radius: 6px 8px 0 0; }
 .tab:hover { color: var(--ink); background: var(--accent-light); }
-.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px 8px 0 0; }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px 8px 0 0; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: none; font-weight: 700; }
 .tab-panel { display: none; animation: fadeInUp 0.3s ease; }
 .tab-panel.active { display: block; }
@@ -72,8 +72,8 @@
 .tool-link { color: var(--accent); text-decoration: none; font-weight: 500; transition: color 0.15s; border-radius: 3px; }
 .tool-link:hover { text-decoration: underline; color: var(--accent-hover); }
 .tool-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.tool-used { color: var(--ok); font-size: 0.7rem; background: var(--ok-light); padding: 2px 6px; border-radius: 8px; }
-.tool-restored { color: var(--accent); font-size: 0.7rem; background: var(--accent-light); padding: 2px 6px; border-radius: 8px; }
+.tool-used { color: var(--ok); font-size: 0.7rem; background: var(--ok-light); padding: 2px 6px; border-radius: 6px; }
+.tool-restored { color: var(--accent); font-size: 0.7rem; background: var(--accent-light); padding: 2px 6px; border-radius: 6px; }
 
 /* Stats */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -227,7 +227,7 @@ details[open] summary { margin-bottom: 8px; }
 }
 .toast-msg {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-  background: #333; color: #fff; padding: 10px 20px; border-radius: 8px;
+  background: #333; color: #fff; padding: 10px 20px; border-radius: 6px;
   font-size: 0.9rem; z-index: 9999; opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -303,7 +303,7 @@ button[type="submit"]:not(.ghost):not(.btn-secondary) {
 }
 
 textarea {
-  border-radius: 10px;
+  border-radius: 6px;
   transition: border-color 0.15s ease, box-shadow 0.18s ease;
 }
 textarea:focus, textarea:focus-visible {
@@ -326,7 +326,7 @@ textarea:focus, textarea:focus-visible {
 
 details.teach-card summary {
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 4px 6px;
   margin: -4px -6px;
   transition: background 0.15s ease;
