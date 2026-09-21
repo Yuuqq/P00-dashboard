@@ -35,13 +35,17 @@
     --bg: #241B11 !important;
     --card: #2F2618 !important;
     --ink: #F7EFDA !important;
-    --ink-secondary: #D3C4A0 !important;
+    --ink-secondary: #E4D3B0 !important;
     --line: #5C4A32 !important;
-    --accent: #C45A45 !important;
-    --accent-hover: #E07A66 !important;
+    --accent: #E2A89A !important;
+    --accent-hover: #F0C4B8 !important;
+    --accent-light: rgba(226, 168, 154, 0.14) !important;
     --paper-hi: #2F2618 !important;
     --paper-3: #2A2216 !important;
-    --cinnabar: #C45A45 !important;
+    --cinnabar: #E2A89A !important;
+    --gold: #E4C98A !important;
+    /* 悬停底：亮纸上的深字，避免墨底配暗色字 */
+    --ink-panel: #E7D7B4 !important;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -49,9 +53,16 @@
         --bg: #241B11 !important;
         --card: #2F2618 !important;
         --ink: #F7EFDA !important;
-        --ink-secondary: #D3C4A0 !important;
+        --ink-secondary: #E4D3B0 !important;
         --line: #5C4A32 !important;
-        --accent: #C45A45 !important;
+        --accent: #E2A89A !important;
+        --accent-hover: #F0C4B8 !important;
+        --accent-light: rgba(226, 168, 154, 0.14) !important;
+        --paper-hi: #2F2618 !important;
+        --paper-3: #2A2216 !important;
+        --cinnabar: #E2A89A !important;
+        --gold: #E4C98A !important;
+        --ink-panel: #E7D7B4 !important;
     }
 }
 
@@ -66,7 +77,7 @@ body {
     font-family: var(--hei) !important;
     line-height: 1.75 !important;
     margin: 0 !important;
-    padding: 16px 72px 112px 16px !important;
+    padding: 16px 16px 112px !important;
     min-height: 100vh;
     box-sizing: border-box;
     overflow-x: clip;
@@ -202,10 +213,12 @@ button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]):not(.filte
     box-shadow: var(--shadow-card) !important;
     font-weight: 600 !important;
     padding: 8px 14px !important;
+    min-height: 44px;
     width: auto !important;
     max-width: 100%;
     box-sizing: border-box;
     white-space: normal;
+    animation: none !important;
 }
 
 button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]):not(.filter-btn):not(.example-btn):hover,
@@ -223,8 +236,12 @@ button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]):not(.filte
     border: 1px solid rgba(162, 64, 47, 0.55) !important;
     box-shadow: none !important;
     border-radius: 4px !important;
+    border-color: color-mix(in srgb, var(--cinnabar) 80%, transparent) !important;
+    min-height: 44px;
     width: auto !important;
     max-width: 100%;
+    box-sizing: border-box;
+    animation: none !important;
 }
 
 .btn-secondary:hover, button.secondary:hover, .ghost:hover, .example-btn:hover {
@@ -237,19 +254,55 @@ button::after, .btn::after {
     content: none !important;
 }
 
+/* 加载中的转圈在 ::after 上，不能被上面的 content:none 清掉 */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+.btn-loading::after {
+    content: "" !important;
+    animation: spin 0.6s linear infinite !important;
+}
+
 /* 压掉本地 styles 的胶囊圆角 / 蓝绿渐变 */
 button, .btn, [type="submit"], [type="button"], .map-link, .chip, .pill {
     border-radius: 4px !important;
 }
 
-input, textarea, select {
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+textarea,
+select {
     border: 1px solid var(--line) !important;
     border-radius: 4px !important;
     background: var(--paper-hi) !important;
     color: var(--ink) !important;
     padding: 8px 12px !important;
+    min-height: 44px;
     box-sizing: border-box;
     max-width: 100%;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--cinnabar);
+}
+
+input[type="range"] {
+    accent-color: var(--cinnabar);
+    padding: 0 !important;
+    height: 28px;
+    max-width: 100%;
+}
+
+summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+}
+
+.tab, [role="tab"] {
+    flex: 0 0 auto;
 }
 
 input:focus, textarea:focus, select:focus {
@@ -333,6 +386,7 @@ button[aria-label*="导航"],
 .gnav-fab,
 [class*="dark-toggle"] {
     z-index: 40 !important;
+    animation: none !important;
 }
 
 @keyframes inkIn {
@@ -345,7 +399,7 @@ button[aria-label*="导航"],
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .app, main, .card:hover, .panel:hover {
+    .app, main, .card:hover, .panel:hover, .btn-loading::after {
         animation: none !important;
         transform: none !important;
     }
@@ -353,7 +407,7 @@ button[aria-label*="导航"],
 
 @media (max-width: 768px) {
     body {
-        padding: 12px 64px 120px 12px !important;
+        padding: 12px 12px 120px !important;
     }
     .hero {
         outline-offset: 3px;
@@ -362,12 +416,15 @@ button[aria-label*="导航"],
     .card, .panel, .teach-card, .drop-zone, .gps-map-card {
         padding: 14px 14px !important;
     }
-    /* 窄屏按钮不要无故撑满整行 */
+    /* 窄屏按钮不要无故撑满整行；滑杆右边给浮动钮让路 */
     button:not(.tab):not(.gnav-fab):not(#darkToggleBtn):not([role="tab"]),
     .btn, [type="submit"], [type="button"] {
         width: auto !important;
         min-height: 44px;
         max-width: 100%;
+    }
+    input[type="range"] {
+        width: calc(100% - 64px) !important;
     }
 }
 

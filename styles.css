@@ -22,9 +22,9 @@
 .tab-nav { display: flex; gap: 4px; margin: 28px 0 20px; border-bottom: 2px solid var(--line); overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .tab { background: none; border: none; padding: 12px 20px; font-size: 0.9rem; font-weight: 600;
   color: var(--ink-secondary); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
-  transition: color 0.2s, border-color 0.2s, background 0.2s; white-space: nowrap; border-radius: 6px 8px 0 0; }
+  transition: color 0.2s, border-color 0.2s, background 0.2s; white-space: nowrap; border-radius: 4px 4px 0 0; flex: 0 0 auto; }
 .tab:hover { color: var(--ink); background: var(--accent-light); }
-.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px 8px 0 0; }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px 4px 0 0; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: none; font-weight: 700; }
 .tab-panel { display: none; animation: fadeInUp 0.3s ease; }
 .tab-panel.active { display: block; }
