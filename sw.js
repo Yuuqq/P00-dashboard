@@ -8,7 +8,7 @@
  * 3. 网络优先 (Network-First) 获取 API 请求
  * 4. 离线回退页面
  */
-const CACHE_NAME = "journalism-tool-P00-v3-parchment-sense";
+const CACHE_NAME = "journalism-tool-P00-v3-parchment-sense-2";
 const CORE_ASSETS = [
   "./",
   "./index.html",
