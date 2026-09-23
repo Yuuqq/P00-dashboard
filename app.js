@@ -1782,15 +1782,15 @@ function syncCatalogCopy() {
 
   const statModulesLabel = document.getElementById("statModulesLabel");
   if (statModulesLabel) {
-    statModulesLabel.textContent = `/${CATALOG_CHAPTER_COUNT} 章节`;
+    statModulesLabel.textContent = `已学 / ${CATALOG_CHAPTER_COUNT} 章`;
   }
   const statTasksLabel = document.getElementById("statTasksLabel");
   if (statTasksLabel) {
-    statTasksLabel.textContent = `/${CATALOG_MISSION_COUNT} 任务`;
+    statTasksLabel.textContent = `已完成 / ${CATALOG_MISSION_COUNT} 任务`;
   }
   const statToolsLabel = document.getElementById("statToolsLabel");
   if (statToolsLabel) {
-    statToolsLabel.textContent = `/${CATALOG_TOOL_COUNT} 涉及工具`;
+    statToolsLabel.textContent = `用过 / ${CATALOG_TOOL_COUNT} 件工具`;
   }
 }
 
