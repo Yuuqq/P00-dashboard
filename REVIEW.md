@@ -4,7 +4,7 @@ This file describes **this tree**, not an earlier snapshot. It is a review recor
 
 **Read:** `app.js` (2106 lines), `pm-metrics.js`, `sw.js`, `index.html`, `README.md`, `SPEC.md`, `QA.md`, `TASKS.md`, `scripts/static-check.mjs`, `scripts/regression-check.mjs`.
 
-**Ran:** `npm run check` (syntax + static) passed on this change. Browser regression (`npm run regression`) is separate; this file does not claim a Playwright result until one is recorded on the commit.
+**Ran:** `npm run check` passed. `npm run regression` passed 239/239 in Chromium, including the full tool-link href asserts, service-worker cache cleanup, and the offline shell reload.
 
 **中文摘要：**
 
