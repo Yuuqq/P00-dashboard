@@ -1,14 +1,12 @@
 /**
- * 🔌 通用 Service Worker — 缓存优先策略
- * 适用于全部 50 个新闻工具项目。
+ * P00 Service Worker
  *
- * 策略：
- * 1. 安装时预缓存当前项目的核心文件
- * 2. 缓存优先 (Cache-First) 获取静态资源
- * 3. 网络优先 (Network-First) 获取 API 请求
- * 4. 离线回退页面
+ * HTML navigations are network-first so a deploy is not stuck behind a stale shell.
+ * Other same-origin GETs stay cache-first with a background refresh.
+ * Precache misses are logged; install still finishes so one missing file does not
+ * disable the offline dashboard shell.
  */
-const CACHE_NAME = "journalism-tool-P00-v2";
+const CACHE_NAME = "journalism-tool-P00-v3";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -26,67 +24,88 @@ const CORE_ASSETS = [
   "./shared/dark-toggle.js"
 ];
 
-// Install: Pre-cache core assets
+function isDocumentRequest(request) {
+  return request.mode === "navigate" || request.destination === "document";
+}
+
+async function putIfOk(request, response) {
+  if (!response || response.status !== 200) return;
+  const cache = await caches.open(CACHE_NAME);
+  await cache.put(request, response.clone());
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(CORE_ASSETS).catch((err) => {
-        console.warn("Cache fail:", err);
-        return Promise.allSettled(
-          CORE_ASSETS.map((url) => cache.add(url).catch(() => {}))
-        );
-      });
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const results = await Promise.allSettled(CORE_ASSETS.map(async (url) => {
+        try {
+          await cache.add(url);
+        } catch (error) {
+          console.warn("[P00-dashboard] Precache miss:", url, error);
+          throw error;
+        }
+      }));
+      const failed = results.filter((result) => result.status === "rejected").length;
+      if (failed > 0) {
+        console.warn(`[P00-dashboard] Precache incomplete: ${failed}/${CORE_ASSETS.length} assets failed.`);
+      }
     })
   );
   self.skipWaiting();
 });
 
-// Activate: Clean old caches
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
       )
     )
   );
   self.clients.claim();
 });
 
-// Fetch: Cache-First for same-origin, Network-First for external
+async function networkFirstDocument(request) {
+  try {
+    const response = await fetch(request);
+    await putIfOk(request, response);
+    return response;
+  } catch (error) {
+    const cached = await caches.match(request) || await caches.match("./index.html");
+    if (cached) return cached;
+    throw error;
+  }
+}
+
+async function cacheFirstAsset(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  await putIfOk(request, response);
+  return response;
+}
+
+async function refreshCachedAsset(request) {
+  const cached = await caches.match(request);
+  if (!cached) return;
+  try {
+    const response = await fetch(request);
+    await putIfOk(request, response);
+  } catch (error) {
+    console.warn("[P00-dashboard] Background refresh failed:", request.url, error);
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-
-  // Skip non-GET and cross-origin API calls
   if (event.request.method !== "GET") return;
   if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) {
-        // Return cache, but also update in background (stale-while-revalidate)
-        const fetchPromise = fetch(event.request).then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        }).catch(() => {});
-        event.waitUntil(fetchPromise);
-        return cached;
-      }
-      return fetch(event.request).then((response) => {
-        if (response && response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      }).catch(() => {
-        // Offline fallback
-        if (event.request.destination === "document") {
-          return caches.match("./index.html");
-        }
-      });
-    })
-  );
+  if (isDocumentRequest(event.request)) {
+    event.respondWith(networkFirstDocument(event.request));
+    return;
+  }
+
+  event.respondWith(cacheFirstAsset(event.request));
+  event.waitUntil(refreshCachedAsset(event.request));
 });
