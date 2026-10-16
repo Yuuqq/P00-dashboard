@@ -1,7 +1,5 @@
 /**
  * 🌗 全局暗色模式切换器 (Dark Mode Toggle)
- * 本文件为 P00-dashboard 的本地副本，用于保持仓库自包含。
- * 若上游 shared 版本更新，需要按需同步这里的实现。
  * 引入方式: <script src="./shared/dark-toggle.js" defer></script>
  *
  * 功能：
@@ -61,7 +59,7 @@
 
   function syncThemeColor(theme) {
     const computedBg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
-    const content = computedBg || (theme === "dark" ? "#1a1a2e" : "#f4f0e8");
+    const content = computedBg || (theme === "dark" ? "#241B11" : "#F0E6CF");
     const allMetas = Array.from(document.querySelectorAll('meta[name="theme-color"]'));
 
     // Preserve a properly authored media-qualified pair, e.g.
@@ -147,9 +145,15 @@
       "bottom:calc(72px + env(safe-area-inset-bottom, 0px))",
       "right:calc(16px + env(safe-area-inset-right, 0px))",
       "z-index:9999",
-      "width:44px", "height:44px", "border-radius:50%",
-      "border:2px solid var(--line)", "background:var(--card)",
-      "color:var(--ink)", "font-size:22px", "cursor:pointer",
+      "box-sizing:border-box",
+      "width:44px",
+      "height:44px",
+      "min-width:44px",
+      "min-height:44px",
+      "padding:0",
+      "border-radius:4px",
+      "border:1.5px solid var(--cinnabar,#A2402F)", "background:var(--paper-hi,#F7EFDA)",
+      "color:var(--ink)", "font-size:18px", "cursor:pointer",
       "display:flex", "align-items:center", "justify-content:center",
       "box-shadow:0 2px 8px rgba(0,0,0,0.15)", "transition:all .2s ease",
       "line-height:1", "padding:0"
@@ -183,6 +187,29 @@
 
   function ensureCopyrightFooter() {
     if (!document.body || document.querySelector("[data-shared-copyright]")) return;
+
+    var contrastFix = document.getElementById("sharedDarkTextFix");
+    if (!contrastFix) {
+      contrastFix = document.createElement("style");
+      contrastFix.id = "sharedDarkTextFix";
+      contrastFix.textContent = [
+        'html[data-theme="dark"] .lead,',
+        'html[data-theme="dark"] .subtle,',
+        'html[data-theme="dark"] .note,',
+        'html[data-theme="dark"] .privacy,',
+        'html[data-theme="dark"] .hint,',
+        'html[data-theme="dark"] .help-text,',
+        'html[data-theme="dark"] label,',
+        'html[data-theme="dark"] summary,',
+        'html[data-theme="dark"] .bg-label,',
+        'html[data-theme="dark"] .step,',
+        'html[data-theme="dark"] .step h2,',
+        'html[data-theme="dark"] .step p { color: #F7EFDA !important; }',
+        'html[data-theme="dark"] .step,',
+        'html[data-theme="dark"] .graphic { background: #2F2618 !important; color: #F7EFDA !important; }'
+      ].join("");
+      document.head.appendChild(contrastFix);
+    }
 
     var style = document.getElementById("sharedCopyrightStyle");
     if (!style) {

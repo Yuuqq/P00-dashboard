@@ -2,7 +2,13 @@
 
 /* Hero */
 .hero { text-align: center; padding: clamp(36px, 5vw, 56px) 16px clamp(24px, 3vw, 32px); }
-.hero h1 { font-size: clamp(1.65rem, 1.2rem + 2.2vw, 2.4rem); margin: 0 0 10px; text-wrap: balance; line-height: 1.18; letter-spacing: -0.01em; }
+    .hero h1 {
+      font-size: clamp(1.65rem, 1.2rem + 2.2vw, 2.4rem);
+      margin: 0 0 10px;
+      text-wrap: balance;
+      line-height: 1.25;
+      letter-spacing: 0.08em;
+    }
 .subtitle { color: var(--ink-secondary); font-size: 1.05rem; margin: 0 auto 24px; letter-spacing: 0.02em; max-width: 52ch; line-height: 1.55; text-wrap: balance; }
 .hero-stats { display: flex; justify-content: center; gap: 0; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
 .hero-stat { font-size: 0.82rem; color: var(--ink-secondary); text-align: center; font-weight: 500;
@@ -24,9 +30,9 @@
 .tab-nav { display: flex; gap: 4px; margin: 28px 0 20px; border-bottom: 2px solid var(--line); overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .tab { background: none; border: none; padding: 12px 20px; font-size: 0.9rem; font-weight: 600;
   color: var(--ink-secondary); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
-  transition: color 0.2s, border-color 0.2s, background 0.2s; white-space: nowrap; border-radius: 8px 8px 0 0; }
+  transition: color 0.2s, border-color 0.2s, background 0.2s; white-space: nowrap; border-radius: 4px 4px 0 0; flex: 0 0 auto; }
 .tab:hover { color: var(--ink); background: var(--accent-light); }
-.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px 8px 0 0; }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px 4px 0 0; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: none; font-weight: 700; }
 .tab-panel { display: none; animation: fadeInUp 0.3s ease; }
 .tab-panel.active { display: block; }
@@ -74,8 +80,8 @@
 .tool-link { color: var(--accent); text-decoration: none; font-weight: 500; transition: color 0.15s; border-radius: 3px; }
 .tool-link:hover { text-decoration: underline; color: var(--accent-hover); }
 .tool-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.tool-used { color: var(--ok); font-size: 0.7rem; background: var(--ok-light); padding: 2px 6px; border-radius: 8px; }
-.tool-restored { color: var(--accent); font-size: 0.7rem; background: var(--accent-light); padding: 2px 6px; border-radius: 8px; }
+.tool-used { color: var(--ok); font-size: 0.7rem; background: var(--ok-light); padding: 2px 6px; border-radius: 6px; }
+.tool-restored { color: var(--accent); font-size: 0.7rem; background: var(--accent-light); padding: 2px 6px; border-radius: 6px; }
 
 /* Stats */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -118,7 +124,7 @@
 .modal-close:hover { background: var(--bad); color: #fff; transform: scale(1.1); }
 .modal-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .modal h2 { margin: 0 0 4px; flex: 1; }
-.modal-badge { font-size: 0.7rem; padding: 3px 10px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 600; white-space: nowrap; }
+.modal-badge { font-size: 0.7rem; padding: 3px 10px; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 600; white-space: nowrap; }
 .modal p { color: var(--ink-secondary); font-size: 0.92rem; line-height: 1.7; margin: 8px 0 0; max-width: 62ch; text-wrap: pretty; }
 .mission-steps { margin: 20px 0; }
 .step-item { display: flex; gap: 12px; padding: 14px; margin-bottom: 8px; border-radius: var(--radius-sm);
@@ -229,7 +235,7 @@ details[open] summary { margin-bottom: 8px; }
 }
 .toast-msg {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-  background: #333; color: #fff; padding: 10px 20px; border-radius: 8px;
+  background: #333; color: #fff; padding: 10px 20px; border-radius: 6px;
   font-size: 0.9rem; z-index: 9999; opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -305,7 +311,7 @@ button[type="submit"]:not(.ghost):not(.btn-secondary) {
 }
 
 textarea {
-  border-radius: 10px;
+  border-radius: 6px;
   transition: border-color 0.15s ease, box-shadow 0.18s ease;
 }
 textarea:focus, textarea:focus-visible {
@@ -317,7 +323,7 @@ textarea:focus, textarea:focus-visible {
 [aria-live="polite"], [aria-live="assertive"], #status {
   display: inline-block;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 4px;
   font-size: 0.85em;
   background: rgba(37,99,235,0.08);
   background: color-mix(in srgb, var(--accent, var(--focus, #2563eb)) 8%, transparent);
@@ -328,7 +334,7 @@ textarea:focus, textarea:focus-visible {
 
 details.teach-card summary {
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 4px 6px;
   margin: -4px -6px;
   transition: background 0.15s ease;

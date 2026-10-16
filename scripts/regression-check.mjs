@@ -75,6 +75,11 @@ function extractQuotedArrayConstant(source, constantName) {
 }
 
 const SERVICE_WORKER_SOURCE = await readFile(path.join(ROOT_DIR, "sw.js"), "utf8");
+const SERVICE_WORKER_CACHE_NAME = (() => {
+  const match = SERVICE_WORKER_SOURCE.match(/const CACHE_NAME = "([^"]+)"/);
+  if (!match) throw new Error("Could not read CACHE_NAME from sw.js");
+  return match[1];
+})();
 const OFFLINE_FETCH_ASSETS = extractQuotedArrayConstant(SERVICE_WORKER_SOURCE, "CORE_ASSETS")
   .filter((asset) => asset !== "./" && asset !== "./index.html" && asset !== "./manifest.json");
 
@@ -3688,6 +3693,9 @@ async function run() {
         const result = await page.evaluate(({ missionSelector }) => {
           const missionCard = document.querySelector(missionSelector);
           const moduleLink = document.querySelector('.tool-link[data-tool-id="P01"]');
+          const missionId = missionCard?.getAttribute("data-mission") || "";
+          if (missionId && typeof openMissionModal === "function") openMissionModal(missionId);
+          const stepLink = document.querySelector('#modalSteps .tool-link[data-step="0"]');
           return {
             missionRole: missionCard?.getAttribute("role") || "",
             missionTabIndex: missionCard instanceof HTMLElement ? missionCard.tabIndex : null,
@@ -3697,14 +3705,16 @@ async function run() {
             moduleRel: moduleLink?.getAttribute("rel") || "",
             moduleTarget: moduleLink?.getAttribute("target") || "",
             moduleLabel: moduleLink?.getAttribute("aria-label") || "",
-            moduleText: moduleLink?.textContent?.trim() || ""
+            moduleText: moduleLink?.textContent?.trim() || "",
+            stepHref: stepLink?.getAttribute("href") || ""
           };
         }, { missionSelector: ETHICS_MISSION_CARD_SELECTOR });
         assert(result.missionRole === "button", `Mission card should expose button semantics: ${JSON.stringify(result)}`);
         assert(result.missionTabIndex === 0, `Mission card should stay keyboard-focusable: ${JSON.stringify(result)}`);
         assert(result.missionHasPopup === "dialog", `Mission card should advertise its dialog behavior via aria-haspopup: ${JSON.stringify(result)}`);
         assert(result.missionLabel === "查看任务：灾难报道中的伦理抉择", `Mission card aria-label drifted from the rendered mission title: ${JSON.stringify(result)}`);
-        assert(result.moduleHref.endsWith("/P01-model-compare/"), `Module tool link href drifted from the slugged tool path: ${JSON.stringify(result)}`);
+        assert(result.moduleHref === "https://yuuqq.github.io/P01-model-compare/", `Module tool link must use the production GitHub Pages origin: ${JSON.stringify(result)}`);
+        assert(result.stepHref === "https://yuuqq.github.io/P31-ethics-avg/", `Mission step link must use the production GitHub Pages origin: ${JSON.stringify(result)}`);
         assert(result.moduleRel === "noopener noreferrer", `Module tool link should preserve rel=noopener noreferrer: ${JSON.stringify(result)}`);
         assert(result.moduleTarget === "_blank", `Module tool link should still open in a new tab: ${JSON.stringify(result)}`);
         assert(result.moduleLabel === "P01 多模型对比器，在新标签页打开", `Module tool link aria-label drifted from the rendered tool metadata: ${JSON.stringify(result)}`);
@@ -4010,7 +4020,7 @@ async function run() {
           };
         });
         assert(result.seeded === true, `Old cache seed did not run before service worker activation: ${JSON.stringify(result)}`);
-        assert(result.cacheNames.includes("journalism-tool-P00-v2"), `Current service worker cache missing after activation: ${JSON.stringify(result.cacheNames)}`);
+        assert(result.cacheNames.includes(SERVICE_WORKER_CACHE_NAME), `Current service worker cache missing after activation: ${JSON.stringify(result.cacheNames)}`);
         assert(!result.cacheNames.includes("journalism-tool-p00-old"), `Old prefixed cache was not removed on service worker activation: ${JSON.stringify(result.cacheNames)}`);
         return passedCase("serviceWorkerCacheCleanupCase");
       } finally {

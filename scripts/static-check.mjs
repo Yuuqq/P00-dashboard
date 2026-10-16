@@ -204,6 +204,12 @@ assert(indexSource.includes(`>四篇十六章 · ${toolIds.length} 个工具 · 
 assert(indexSource.includes(`/${chapterGroups.length} 章节`), "index.html chapter stat placeholder drifted from catalog counts");
 assert(indexSource.includes(`/${missionIds.length} 任务`), "index.html mission stat placeholder drifted from catalog counts");
 assert(indexSource.includes(`/${toolIds.length} 涉及工具`), "index.html tool stat placeholder drifted from catalog counts");
+assert(appSource.includes('const SITE_BASE = "https://yuuqq.github.io";'), "SITE_BASE must stay on the production GitHub Pages origin; this repo does not contain the sibling tool projects");
+assert(!appSource.includes('? "."'), "SITE_BASE must not fall back to a relative origin for file:// or localhost");
+assert(serviceWorkerSource.includes('const CACHE_NAME = "journalism-tool-P00-v3";'), "sw.js cache name must be bumped when the HTML strategy changes");
+assert(serviceWorkerSource.includes("async function networkFirstDocument"), "sw.js must serve document navigations network-first");
+assert(serviceWorkerSource.includes("[P00-dashboard] Precache miss:"), "sw.js must log precache misses instead of swallowing them");
+assert(!serviceWorkerSource.includes("cache.add(url).catch(() => {})"), "sw.js must not swallow individual precache failures");
 assert(indexSource.includes(`${toolIds.length} 个工具对齐《新闻传播AI应用教程》四篇十六章结构，按篇分组、按章练习。`), "index.html modules description drifted from the textbook chapter contract");
 assert(indexSource.includes(`新闻素养工具集 · ${toolIds.length} 个项目 · `), "index.html footer catalog text drifted from catalog counts");
 assert(manifest.description === `新闻素养学习中枢 — 四篇十六章 · ${toolIds.length} 个工具、案例驱动的实战训练入口。`, `manifest description drifted from catalog counts: ${JSON.stringify(manifest.description)}`);

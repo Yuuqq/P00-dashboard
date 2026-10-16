@@ -2,6 +2,8 @@
  * P00 新闻素养学习中枢
  * 任务链引擎 · 模块系统 · 进度追踪 · 数据聚合
  */
+// Sibling tool projects live on GitHub Pages, not in this repo.
+// file:// and localhost must keep this origin; a relative "." 404s on 打开工具.
 const SITE_BASE = "https://yuuqq.github.io";
 
 // ===== 教材章节目录（对齐《新闻传播AI应用教程》四篇十六章） =====
