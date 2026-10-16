@@ -2,6 +2,7 @@
  * P00 Service Worker
  *
  * HTML navigations are network-first so a deploy is not stuck behind a stale shell.
+ * Stylesheets are network-first too, so a theme deploy is not stuck in cache.
  * Other same-origin GETs stay cache-first with a background refresh.
  * Precache misses are logged; install still finishes so one missing file does not
  * disable the offline dashboard shell.
@@ -17,6 +18,7 @@ const CORE_ASSETS = [
   "./icon-512.png",
   "./apple-touch-icon.png",
   "./styles.css",
+  "./modern-styles.css",
   "./app.js",
   "./pm-metrics.js",
   "./shared/design-tokens.css",
@@ -25,7 +27,13 @@ const CORE_ASSETS = [
 ];
 
 function isDocumentRequest(request) {
-  return request.mode === "navigate" || request.destination === "document";
+  const url = new URL(request.url);
+  return request.mode === "navigate" || request.destination === "document" || url.pathname.endsWith(".html");
+}
+
+function isStyleRequest(request) {
+  const url = new URL(request.url);
+  return request.destination === "style" || url.pathname.endsWith(".css");
 }
 
 async function putIfOk(request, response) {
@@ -77,6 +85,18 @@ async function networkFirstDocument(request) {
   }
 }
 
+async function networkFirstStyle(request) {
+  try {
+    const response = await fetch(request);
+    await putIfOk(request, response);
+    return response;
+  } catch (error) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    throw error;
+  }
+}
+
 async function cacheFirstAsset(request) {
   const cached = await caches.match(request);
   if (cached) return cached;
@@ -103,6 +123,11 @@ self.addEventListener("fetch", (event) => {
 
   if (isDocumentRequest(event.request)) {
     event.respondWith(networkFirstDocument(event.request));
+    return;
+  }
+
+  if (isStyleRequest(event.request)) {
+    event.respondWith(networkFirstStyle(event.request));
     return;
   }
 

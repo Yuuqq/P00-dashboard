@@ -78,18 +78,24 @@
     const styleEl = document.createElement("style");
     styleEl.textContent = `
         .gnav-fab {
-            position: fixed; right: 16px; bottom: 16px; z-index: 9998;
-            width: 44px; height: 44px; border-radius: 50%; border: none;
-            background: var(--accent, #c7491f); color: #fff; cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            /* iOS safe-area: home indicator + landscape notch insets */
+            position: fixed;
+            right: calc(16px + env(safe-area-inset-right, 0px));
+            bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+            z-index: 9998;
+            box-sizing: border-box;
+            width: 44px !important; height: 44px !important; padding: 0 !important; border-radius: 4px; border: 1.5px solid var(--cinnabar, #A2402F);
+            background: var(--paper-hi, #F7EFDA) !important; color: var(--cinnabar, #A2402F) !important; cursor: pointer;
+            box-shadow: 0 2px 14px rgba(107,90,68,0.16);
             display: flex; align-items: center; justify-content: center;
-            font-size: 18px; transition: transform .2s, box-shadow .2s;
+            font-size: 12px !important; line-height: 1; letter-spacing: 0; font-family: var(--hei, "Noto Sans SC", sans-serif);
+            transition: transform .2s, box-shadow .2s;
         }
         .gnav-fab:hover { transform: scale(1.08); box-shadow: 0 6px 18px rgba(0,0,0,0.28); }
         .gnav-fab:focus-visible { outline: 3px solid var(--accent, #c7491f); outline-offset: 3px; }
         .gnav-overlay {
             position: fixed; inset: 0; z-index: 9999;
-            background: rgba(0,0,0,0.45); backdrop-filter: blur(4px);
+            background: rgba(36, 27, 17, 0.46);
             display: none; align-items: flex-start; justify-content: center;
             padding: 80px 16px 16px; animation: gnavFade .15s ease-out;
         }
@@ -97,8 +103,8 @@
         @keyframes gnavFade { from { opacity: 0 } to { opacity: 1 } }
         .gnav-panel {
             width: 100%; max-width: 560px; max-height: 70vh;
-            background: var(--card, #fff); color: var(--ink, #1a1a1a);
-            border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            background: var(--card, #F7EFDA); color: var(--ink, #3A2E20);
+            border-radius: 6px; border: 1px solid var(--line, #D3C4A0); box-shadow: 0 16px 40px rgba(36,27,17,0.28);
             display: flex; flex-direction: column; overflow: hidden;
             animation: gnavSlide .2s ease-out;
         }
@@ -111,7 +117,7 @@
         .gnav-list { flex: 1; overflow-y: auto; padding: 4px; }
         .gnav-item {
             display: flex; align-items: center; gap: 12px;
-            padding: 10px 14px; border-radius: 8px; cursor: pointer;
+            padding: 10px 14px; border-radius: 4px; cursor: pointer;
             font-size: 14px; line-height: 1.4;
         }
         .gnav-item.active, .gnav-item:hover {
@@ -127,7 +133,7 @@
         .gnav-title { font-weight: 600; }
         .gnav-desc { font-size: 12px; color: var(--ink-secondary, #888); }
         .gnav-cat {
-            font-size: 11px; padding: 2px 8px; border-radius: 999px;
+            font-size: 11px; padding: 2px 8px; border-radius: 4px;
             background: var(--accent-light, rgba(199,73,31,0.08));
             color: var(--accent, #c7491f); white-space: nowrap;
         }
@@ -146,7 +152,7 @@
             background: var(--line, #eee); font-family: var(--font-mono, monospace); font-size: 10px;
         }
         @media (max-width: 600px) {
-            .gnav-fab { right: 12px; bottom: 12px; }
+            .gnav-fab { right: calc(12px + env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
             .gnav-overlay { padding-top: 40px; }
         }
         @media print { .gnav-fab, .gnav-overlay { display: none !important; } }
@@ -154,6 +160,7 @@
     document.head.appendChild(styleEl);
 
     const fab = document.createElement("button");
+    fab.type = "button";
     fab.className = "gnav-fab";
     fab.setAttribute("aria-label", "打开 51 工具快速导航 (⌘K)");
     fab.innerHTML = "⌘K";
