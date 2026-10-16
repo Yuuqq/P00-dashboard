@@ -1,83 +1,97 @@
-# 🔍 P00-Dashboard Code Review
+# P00-Dashboard review notes
 
-This is a comprehensive code review of the `P00-dashboard` repository based on the review goals outlined.
+This file describes **this tree**, not an earlier snapshot. It is a review record, not a claim that the suite is exceptional.
 
-Overall, the repository is an impressive locally-run learning dashboard. The robust fallback mechanisms, metrics resilience, and extremely thorough testing suite stand out as exceptional for a vanilla JavaScript application.
+**Read:** `app.js` (2106 lines), `pm-metrics.js`, `sw.js`, `index.html`, `README.md`, `SPEC.md`, `QA.md`, `TASKS.md`, `scripts/static-check.mjs`, `scripts/regression-check.mjs`.
 
-**Files Read / Executed:**
-- `app.js` (2104 lines)
-- `pm-metrics.js`
-- `sw.js`
-- `scripts/*` (regression tests)
-- `SPEC.md`, `QA.md`, `TASKS.md`
+**Ran:** `npm run check` passed. `npm run regression` passed 239/239 in Chromium, including the full tool-link href asserts, service-worker cache cleanup, and the offline shell reload.
 
-**中文摘要 (Chinese Summary):**
-本审查重点关注 P00-Dashboard 的代码架构、可靠性和维护性。应用在测试覆盖和无网降级方面表现出色，但也存在一些维护性（如 app.js 的单体结构、事件监听器管理）及文档与实际功能脱节的问题。提出的修改建议均考虑了当前“双击 index.html 即可运行”的本地优先体验。
+**中文摘要：**
 
----
+本审查对齐当前代码，不沿用上一轮已经过期的结论。
 
-## 1. Architecture and Code Organization Quality
-
-**[MEDIUM] Monolithic Application Structure in `app.js`**
-- **File:** `app.js`
-- **Impact:** `app.js` is 2104 lines and tightly couples static data definitions (`MISSIONS`, `MODULES`), local storage management, and UI rendering logic. This reduces maintainability and increases the likelihood of merge conflicts as the application grows.
-- **Fix:** Separate concerns into distinct modules. **Note:** To preserve the primary onboarding path ("双击 `index.html`"), do not use standard ES6 `<script type="module">` which breaks over `file://`. Instead, split files but load them as classic scripts (e.g., extract data into `catalog.js` loaded before `app.js`), or keep the monolith and extract data only.
+- 工具链接固定为 `https://yuuqq.github.io`。本仓库没有 50 个工具目录，`file://` 和 `localhost` 不能改成相对路径，否则「打开工具」会 404。仪表盘页面可以离线看；工具本体在 GitHub Pages，打开它们需要联网。README 已写明这条边界。
+- Service Worker：文档导航改为 network-first，失败才回退缓存；预缓存单个失败会 `console.warn`，安装仍会完成。静态资源仍是 cache-first，并在后台刷新。缓存名是 `journalism-tool-P00-v3`。
+- 英雄区仍是 `0/15 章节` 这种写法，冷启动时容易被看成空目录。文案修复留给 PR #1，本分支不改这组标签。
+- `SPEC.md` / `QA.md` / `TASKS.md` 改成和真实界面一致的短说明：没有搜索、没有分类筛选，也不再无证据打勾。
+- `innerHTML` 还在。导入数据进渲染之前有 allowlist。`escapeHtml` 在 `shared/global-nav.js`，而 `index.html` 没有加载这个文件，不要从 `app.js` 去引用它。
+- 仓库没有 GitHub Actions。
 
 ---
 
-## 2. Security Issues
+## 1. Architecture
 
-**[LOW] Unsafe HTML Injection via `innerHTML`**
-- **Files:** `app.js` (lines 1513, 1579, 1775, 1829, 1891+ within `renderMissions`, `openMissionModal`, `syncCatalogCopy`, `renderModules`, `renderStats`)
-- **Impact:** Functions use template literals injected directly into `.innerHTML`. The import functionality is a user-controlled path, however, it is currently constrained by allowlists (e.g., `normalizeImportedSnapshot`, `sanitizeProgressPayload`, `extractTrackedProjectId`) before reaching the render sink. While currently safe, this pattern remains vulnerable if future data sources or import structures change.
-- **Fix:** Use safe DOM manipulation APIs like `document.createElement()` and `textContent` for dynamic values, or use a lightweight helper function (like the existing `escapeHtml`) before inserting dynamic HTML strings.
+**[MEDIUM] Monolithic `app.js`**
+
+- **File:** `app.js` (2106 lines)
+- **Impact:** Catalog data, storage, and rendering still live in one file.
+- **Fix:** Split with classic scripts loaded before `app.js`, or extract data only. Do not switch the onboarding path to `<script type="module">`; `file://` breaks modules, and README still tells teachers to double-click `index.html`.
 
 ---
 
-## 3. Reliability / Error Handling / Edge Cases
+## 2. Security
 
-**[LOW] Download Bytes Unasserted (Export)**
+**[LOW] `innerHTML` template sinks**
+
+- **Files:** `app.js` lines 1515 (`renderMissions`), 1581 (`openMissionModal`), 1777 (`syncCatalogCopy`), 1831 (`renderModules`), 1893 / 1903 / 1924 / 1944 (`renderStats`)
+- **Impact:** Values are interpolated into HTML. Import is user-controlled, and it is constrained before render: `normalizeImportedSnapshot` / `sanitizeProgressPayload` allowlist mission ids and boolean `stepN` flags; `extractTrackedProjectId` only returns ids in `VALID_TOOL_IDS`. Current import-to-render path is constrained. The pattern becomes unsafe if a later change interpolates raw import strings.
+- **Fix:** Prefer `textContent` / `createElement` for dynamic values. Do not pull in `escapeHtml` from `shared/global-nav.js`; that script is not on the P00 page.
+
+---
+
+## 3. Reliability
+
+**[LOW] Export download bytes are still unasserted**
+
 - **File:** `scripts/regression-check.mjs`
-- **Impact:** While the export flow is well-tested for building the payload and replacing toasts, the actual file download (Blob contents on disk via `a.download`) is not verified.
-- **Fix:** Intercept the download or stub `URL.createObjectURL` / `<a>.click` inside the existing evaluate harness and assert the JSON `format`, `format_version`, and keys.
+- **Impact:** Export payload, toasts, and failure paths are tested. The bytes behind `a.download` are not.
+- **Fix:** Stub `URL.createObjectURL` / the anchor click inside the existing harness and assert `format`, `format_version`, and keys.
 
-**[LOW] Service Worker Caching and Staleness**
+**[LOW] Service worker residuals**
+
 - **File:** `sw.js`
-- **Impact:** The service worker uses `skipWaiting` + `clients.claim` + cache-first + stale-while-revalidate on every same-origin GET 200, including HTML. A failed `cache.addAll` is swallowed. Students on GitHub Pages can sit on a stale shell after a deploy.
-- **Fix:** Handle failed `cache.addAll` robustly, and reconsider caching strategies for HTML files to prevent stale experiences.
+- **Status:** Document navigations are network-first with cache fallback (`networkFirstDocument`). A failed precache entry is logged (`[P00-dashboard] Precache miss:`); install still completes so one missing file does not disable the shell. Cache name is `journalism-tool-P00-v3`, so the previous cache-first shell is dropped on activate.
+- **Still open:** Same-origin static assets stay cache-first with a background refresh. `skipWaiting` and `clients.claim` are unchanged. A background refresh failure is logged, not surfaced in the page.
 
 ---
 
-## 4. Performance or Maintainability Concerns
+## 4. Maintainability
 
-**[LOW] Inconsistent Event Listener Management on Re-renders**
-- **File:** `app.js` (lines 1533-1540 within `renderMissions`)
-- **Impact:** After updating `innerHTML`, event listeners are bound directly to newly created `.mission-card` elements. While not a memory leak (old nodes are GC'd), this approach is less maintainable than event delegation.
-- **Fix:** Implement event delegation on the parent container.
+**[LOW] Listeners rebound after `innerHTML`**
 
-**[LOW] Metrics DOM IDs as In-Repo Contract Smells**
-- **File:** `pm-metrics.js` (lines 229, 238, 731, 760)
-- **Impact:** `pm-metrics.js` explicitly queries for elements using hardcoded IDs like `document.getElementById("status")` (which is dead/doesn't exist in `index.html`) and `document.getElementById("toastContainer")`.
-- **Fix:** Remove queries for dead elements and refactor `pm-metrics.js` to accept configuration options for target DOM selectors.
+- **File:** `app.js` lines 1535–1540 (`renderMissions`) and 1597 (`#modalSteps .tool-link`)
+- **Impact:** Replacing `innerHTML` drops the old nodes, so this is not a leak. Event delegation would be easier to maintain.
+- **Fix:** One listener on the parent, dispatched with `closest`.
+
+**[LOW] Metrics DOM ids are an in-repo contract smell**
+
+- **File:** `pm-metrics.js` lines 229, 238, 731, 760
+- **Impact:** `#toastContainer` is created at runtime by `shared/toast.js`. `#status` is not in `index.html`. This file is P00-specific (`PROJECT_ID = "P00-dashboard"`). Reusability is not a goal.
+- **Fix:** Stop observing the missing `#status` node. Keep the toast lookup local to this dashboard.
 
 ---
 
-## 5. Documentation and Developer-Experience Gaps
+## 5. Documentation and classroom behavior
 
-**[HIGH] Stale Product Docs Contract Bug**
-- **Files:** `SPEC.md`, `QA.md`, `TASKS.md`
-- **Impact:** These files are leftover stubs that describe a different app (e.g., search, category filtering) which contradicts the shipping UI. `QA.md` incorrectly checks off features that don't exist, leading to classroom false confidence.
-- **Fix:** Remove or rewrite these stubs to reflect the actual dashboard features. See PR #1 regarding empty progress misreads.
+**[OPEN, owned by PR #1] Empty hero stats**
 
-**[MEDIUM] `SITE_BASE` Hardcoded to Production**
-- **File:** `app.js`
-- **Impact:** `SITE_BASE` is hardcoded to "https://yuuqq.github.io". Tool links and `openExternalTool` always leave the local/offline copy for production GH Pages, breaking the "离线可用" (offline-capable) promise in the README.
-- **Fix:** Use relative paths or detect local vs GH pages for `SITE_BASE`.
+- **Files:** `index.html`, `app.js` `syncCatalogCopy`
+- **Impact:** A fresh browser still shows `0/15 章节`, `0/5 任务`, `0/50 涉及工具`. That reads like an empty catalog even though the mission cards are on the page. This branch does not change that copy; PR #1 already has the classroom wording and note.
 
-**[LOW] Missing CI**
-- **File:** Repository root
-- **Impact:** 239 browser cases and `npm run check` exist, but there is no GitHub Actions workflow (`.github/workflows`) to run them automatically.
+**[ACCEPTED] `SITE_BASE` stays on production**
 
-**[LOW] Metrics Privacy Clarification**
+- **File:** `app.js` line 7
+- **Impact:** Tool links are `https://yuuqq.github.io/<id>-<slug>/` for every host, including `file://` and `localhost`. A relative `"."` 404s, because this repository does not contain the 50 tool directories. The dashboard shell can be used offline; opening a tool needs the network. README states that. `scripts/static-check.mjs` locks the constant, and `interactiveSemanticsCase` asserts the full module and mission-step hrefs.
+
+**[LOW] No CI**
+
+- **Impact:** `npm run check` and the browser suite are local-only. There is no `.github/workflows` file.
+
+**[LOW] Unused shared surface**
+
+- **Impact:** `index.html` loads `pm-metrics.js`, `shared/toast.js`, `app.js`, and `shared/dark-toggle.js`. `shared/vendor/*`, `shared/global-nav.js`, and `modern-styles.css` are not on that path. Do not treat vendor code as part of the P00 XSS surface.
+
+**[CLOSED in README] Metrics privacy**
+
 - **File:** `README.md`
-- **Impact:** While data never leaves the device (no beacon), it is worth stating explicitly that `pm-metrics` is localStorage-only to clarify the threat model.
+- **Impact:** `pm-metrics` writes `localStorage` keys prefixed with `pm_metrics_` and does not send a beacon. The README now says so.
