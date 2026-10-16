@@ -201,9 +201,13 @@ assert(chapterGroups.length === new Set(chapterGroups).size, `Catalog chapter en
 assert(tierValues.length === toolIds.length && tierValues.every((tier) => ["Tier 1", "Tier 2", "拓展"].includes(tier)), `Every catalog tool must carry a Tier 1 / Tier 2 / 拓展 tier label: ${JSON.stringify({ toolIds: toolIds.length, tierValues: tierValues.length })}`);
 assert(indexSource.includes(`content="新闻素养学习中枢 — 四篇十六章 · ${toolIds.length} 个工具 · 案例任务链驱动的实战训练"`), "index.html meta description drifted from catalog counts");
 assert(indexSource.includes(`>四篇十六章 · ${toolIds.length} 个工具 · 案例驱动的实战训练<`), "index.html hero subtitle drifted from catalog counts");
-assert(indexSource.includes(`/${chapterGroups.length} 章节`), "index.html chapter stat placeholder drifted from catalog counts");
-assert(indexSource.includes(`/${missionIds.length} 任务`), "index.html mission stat placeholder drifted from catalog counts");
-assert(indexSource.includes(`/${toolIds.length} 涉及工具`), "index.html tool stat placeholder drifted from catalog counts");
+assert(indexSource.includes('id="statModulesLabel">已学章节<'), "index.html chapter stat placeholder drifted from the classroom progress copy");
+assert(indexSource.includes('id="statTasksLabel">已完成任务<'), "index.html mission stat placeholder drifted from the classroom progress copy");
+assert(indexSource.includes('id="statToolsLabel">用过工具<'), "index.html tool stat placeholder drifted from the classroom progress copy");
+assert(indexSource.includes('id="heroProgressNote">这些数字是<strong>本机学习进度</strong>，不是工具是否上线。'), "index.html should explain that a fresh hero zero is local progress, not an empty catalog");
+assert(appSource.includes("statModulesLabel.textContent = `已学 / ${CATALOG_CHAPTER_COUNT} 章`;"), `runtime chapter label should keep the catalog count (${chapterGroups.length})`);
+assert(appSource.includes("statTasksLabel.textContent = `已完成 / ${CATALOG_MISSION_COUNT} 任务`;"), `runtime mission label should keep the catalog count (${missionIds.length})`);
+assert(appSource.includes("statToolsLabel.textContent = `用过 / ${CATALOG_TOOL_COUNT} 件工具`;"), `runtime tool label should keep the catalog count (${toolIds.length})`);
 assert(appSource.includes('const SITE_BASE = "https://yuuqq.github.io";'), "SITE_BASE must stay on the production GitHub Pages origin; this repo does not contain the sibling tool projects");
 assert(!appSource.includes('? "."'), "SITE_BASE must not fall back to a relative origin for file:// or localhost");
 assert(serviceWorkerSource.includes('const CACHE_NAME = "journalism-tool-P00-v3";'), "sw.js cache name must be bumped when the HTML strategy changes");

@@ -94,7 +94,7 @@ function assertThemeUiState(result, { theme, buttonLabel, buttonPressed, storedT
   assert(result.buttonLabel === buttonLabel, `${prefix} did not update the dark-toggle button label: ${JSON.stringify(result)}`);
   assert(result.buttonPressed === buttonPressed, `${prefix} did not update the dark-toggle button pressed state: ${JSON.stringify(result)}`);
   if (managed === false) {
-    assert(result.themeColor === "#f4f0e8" && result.themeColorMedia === "(prefers-color-scheme: light)", `${prefix} should preserve the authored light-first theme-color media pair while no explicit preference is stored: ${JSON.stringify(result)}`);
+    assert(result.themeColor === "#F0E6CF" && result.themeColorMedia === "(prefers-color-scheme: light)", `${prefix} should preserve the authored light-first theme-color media pair while no explicit preference is stored: ${JSON.stringify(result)}`);
   } else {
     assert(result.themeColor === result.bg, `${prefix} did not keep theme-color aligned with the active background token: ${JSON.stringify(result)}`);
     assert(result.themeColorMedia === "", `${prefix} should keep only the active theme-color meta without media after updates: ${JSON.stringify(result)}`);
